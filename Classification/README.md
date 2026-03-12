@@ -61,3 +61,67 @@ pip install -r requirements.txt
     ```bash
     python -u main_forget.py --save_dir ${save_dir} --model_path ${origin_model_path} --unlearn FT_prune --num_indexes_to_replace ${forgetting data amount} --alpha ${alpha} --unlearn_epochs ${epochs for unlearning} --unlearn_lr ${learning rate for unlearning}
     ```
+
+## Fixed-forget LMC workflow
+The repository now supports fixed forget indexes, separate data/unlearning seeds, and intermediate checkpoint saving for checkpoint-wise linear mode connectivity experiments.
+
+1. Create a fixed forget set once.
+    ```bash
+    python make_forget_indices.py \
+      --arch resnet18 \
+      --dataset cifar10 \
+      --num_indexes_to_replace 4500 \
+      --forget_seed 2 \
+      --output_path ../artifacts/forget_indices.npy
+    ```
+
+2. Reuse that forget set for mask generation and unlearning.
+    ```bash
+    python generate_mask.py \
+      --save_dir runs/mask_fixed \
+      --model_path ${origin_model_path} \
+      --forget_seed 2 \
+      --forget_index_path ../artifacts/forget_indices.npy \
+      --unlearn_seed 2 \
+      --unlearn_epochs 1
+    ```
+
+    ```bash
+    python main_random.py \
+      --unlearn RL \
+      --unlearn_epochs 10 \
+      --unlearn_lr 0.013 \
+      --model_path ${origin_model_path} \
+      --save_dir runs/salun_A \
+      --mask_path runs/mask_fixed/with_0.5.pt \
+      --forget_seed 2 \
+      --forget_index_path ../artifacts/forget_indices.npy \
+      --unlearn_seed 11 \
+      --checkpoint_epochs 0,1,3,5,10
+    ```
+
+3. Evaluate saved checkpoints into `endpoint_metrics.csv`.
+    ```bash
+    python evaluate_checkpoints.py \
+      --arch resnet18 \
+      --dataset cifar10 \
+      --run_dir runs/salun_A \
+      --unlearn RL \
+      --forget_seed 2 \
+      --forget_index_path ../artifacts/forget_indices.npy \
+      --include_final_checkpoint
+    ```
+
+4. Measure linear interpolation between two runs.
+    ```bash
+    python interpolate_checkpoints.py \
+      --arch resnet18 \
+      --dataset cifar10 \
+      --run_a_dir runs/salun_A \
+      --run_b_dir runs/salun_B \
+      --curve_epochs 0,1,3,5,10 \
+      --forget_seed 2 \
+      --forget_index_path ../artifacts/forget_indices.npy \
+      --output_dir ../artifacts/interpolation \
+      --retrain_metrics_path runs/retrain/endpoint_metrics.csv
+    ```

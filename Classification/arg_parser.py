@@ -1,7 +1,7 @@
 import argparse
 
 
-def parse_args():
+def build_parser():
     parser = argparse.ArgumentParser(description="Classification of SalUn Experiments")
 
     ##################################### Dataset #################################################
@@ -46,10 +46,22 @@ def parse_args():
     ##################################### General setting ############################################
     parser.add_argument("--seed", default=2, type=int, help="random seed")
     parser.add_argument(
+        "--forget_seed",
+        default=None,
+        type=int,
+        help="seed for data split and forget set sampling (defaults to --seed)",
+    )
+    parser.add_argument(
         "--train_seed",
-        default=1,
+        default=None,
         type=int,
         help="seed for training (default value same as args.seed)",
+    )
+    parser.add_argument(
+        "--unlearn_seed",
+        default=None,
+        type=int,
+        help="seed for dataloader order and unlearning randomness (defaults to --seed)",
     )
     parser.add_argument("--gpu", type=int, default=0, help="gpu device id")
     parser.add_argument(
@@ -135,11 +147,40 @@ def parse_args():
 
     parser.add_argument(
         "--indexes_to_replace",
-        type=list,
+        nargs="+",
+        type=int,
         default=None,
         help="Specific index data to forget",
     )
     parser.add_argument("--alpha", default=0.2, type=float, help="unlearn noise")
     parser.add_argument("--mask_path", default=None, type=str, help="the path of saliency map")
+    parser.add_argument(
+        "--forget_index_path",
+        default=None,
+        type=str,
+        help="path to a .npy/.npz file with fixed forget indexes",
+    )
+    parser.add_argument(
+        "--save_forget_index_path",
+        default=None,
+        type=str,
+        help="optional path to save the explicit forget indexes used by the run",
+    )
+    parser.add_argument(
+        "--checkpoint_epochs",
+        default=None,
+        type=str,
+        help="comma-separated epochs to save intermediate checkpoints, e.g. 0,1,3,5,10",
+    )
+    parser.add_argument(
+        "--checkpoint_dir",
+        default="checkpoints",
+        type=str,
+        help="directory under save_dir for intermediate checkpoints",
+    )
 
-    return parser.parse_args()
+    return parser
+
+
+def parse_args():
+    return build_parser().parse_args()

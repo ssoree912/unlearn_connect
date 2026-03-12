@@ -1,6 +1,7 @@
 import os
 import time
 
+import experiment_helpers as experiment
 import matplotlib.pyplot as plt
 import numpy as np
 import pruner
@@ -19,7 +20,14 @@ def plot_training_curve(training_result, save_dir, prefix):
 
 
 def save_unlearn_checkpoint(model, evaluation_result, args):
-    state = {"state_dict": model.state_dict(), "evaluation_result": evaluation_result}
+    state = {
+        "state_dict": model.state_dict(),
+        "evaluation_result": evaluation_result,
+        "epoch": getattr(args, "unlearn_epochs", None),
+        "forget_seed": getattr(args, "forget_seed", None),
+        "unlearn_seed": getattr(args, "unlearn_seed", None),
+        "cumulative_runtime_seconds": getattr(args, "cumulative_runtime_seconds", None),
+    }
     utils.save_checkpoint(state, False, args.save_dir, args.unlearn)
     utils.save_checkpoint(
         evaluation_result,
@@ -99,6 +107,7 @@ def _iterative_unlearn_impl(unlearn_iter_func):
             # learning rate rewinding
             for _ in range(args.rewind_epoch):
                 scheduler.step()
+        total_runtime = 0.0
         for epoch in range(0, args.unlearn_epochs):
             start_time = time.time()
 
@@ -113,7 +122,20 @@ def _iterative_unlearn_impl(unlearn_iter_func):
             )
             scheduler.step()
 
-            print("one epoch duration:{}".format(time.time() - start_time))
+            epoch_runtime = time.time() - start_time
+            total_runtime += epoch_runtime
+            args.cumulative_runtime_seconds = total_runtime
+            print("one epoch duration:{}".format(epoch_runtime))
+            experiment.save_requested_checkpoint(
+                model,
+                args,
+                epoch=epoch + 1,
+                extra_state={
+                    "train_accuracy": train_acc,
+                    "epoch_runtime_seconds": epoch_runtime,
+                    "cumulative_runtime_seconds": total_runtime,
+                },
+            )
 
     return _wrapped
 

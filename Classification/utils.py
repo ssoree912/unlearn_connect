@@ -110,6 +110,14 @@ def dataset_convert_to_test(dataset, args=None):
 
 
 def setup_model_dataset(args):
+    dataset_seed = getattr(args, "forget_seed", None)
+    if dataset_seed is None:
+        dataset_seed = args.seed
+
+    train_seed = getattr(args, "train_seed", None)
+    if train_seed is None:
+        train_seed = args.seed
+
     if args.dataset == "cifar10":
         classes = 10
         normalization = NormalizeByChannelMeanStd(
@@ -125,22 +133,21 @@ def setup_model_dataset(args):
             class_to_replace=args.class_to_replace,
             num_indexes_to_replace=args.num_indexes_to_replace,
             indexes_to_replace=args.indexes_to_replace,
-            seed=args.seed,
+            seed=dataset_seed,
             only_mark=True,
             shuffle=True,
             no_aug=args.no_aug,
         )
 
-        if args.train_seed is None:
-            args.train_seed = args.seed
-        setup_seed(args.train_seed)
+        args.train_seed = train_seed
+        setup_seed(train_seed)
 
         if args.imagenet_arch:
             model = model_dict[args.arch](num_classes=classes, imagenet=True)
         else:
             model = model_dict[args.arch](num_classes=classes)
 
-        setup_seed(args.train_seed)
+        setup_seed(train_seed)
 
         model.normalize = normalization
         return model, train_full_loader, val_loader, test_loader, marked_loader
@@ -159,10 +166,12 @@ def setup_model_dataset(args):
             class_to_replace=args.class_to_replace,
             num_indexes_to_replace=args.num_indexes_to_replace,
             indexes_to_replace=args.indexes_to_replace,
-            seed=args.seed,
+            seed=dataset_seed,
             only_mark=True,
             shuffle=True,
         )
+        args.train_seed = train_seed
+        setup_seed(train_seed)
         if args.imagenet_arch:
             model = model_dict[args.arch](num_classes=classes, imagenet=True)
         else:
@@ -185,11 +194,13 @@ def setup_model_dataset(args):
             class_to_replace=args.class_to_replace,
             num_indexes_to_replace=args.num_indexes_to_replace,
             indexes_to_replace=args.indexes_to_replace,
-            seed=args.seed,
+            seed=dataset_seed,
             only_mark=True,
             shuffle=True,
             no_aug=args.no_aug,
         )
+        args.train_seed = train_seed
+        setup_seed(train_seed)
         if args.imagenet_arch:
             model = model_dict[args.arch](num_classes=classes, imagenet=True)
         else:
@@ -212,10 +223,12 @@ def setup_model_dataset(args):
             class_to_replace=args.class_to_replace,
             num_indexes_to_replace=args.num_indexes_to_replace,
             indexes_to_replace=args.indexes_to_replace,
-            seed=args.seed,
+            seed=dataset_seed,
             only_mark=True,
             shuffle=True,
         )
+        args.train_seed = train_seed
+        setup_seed(train_seed)
         if args.imagenet_arch:
             model = model_dict[args.arch](num_classes=classes, imagenet=True)
         else:
