@@ -131,3 +131,30 @@ def train(train_loader, model, criterion, optimizer, epoch, args, mask=None, l1=
         print("train_accuracy {top1.avg:.3f}".format(top1=top1))
 
     return top1.avg
+
+
+def train_with_rewind(model, optimizer, scheduler, train_loader, criterion, args):
+    """Train for `args.epochs` and return the rewind checkpoint state dict.
+
+    The pruning code expects a copy of the model weights taken before the
+    training epoch indexed by `args.rewind_epoch`. With the default value `0`,
+    that means returning the initial weights.
+    """
+
+    rewind_state_dict = copy.deepcopy(model.state_dict())
+
+    for epoch in range(args.epochs):
+        if epoch == args.rewind_epoch:
+            rewind_state_dict = copy.deepcopy(model.state_dict())
+
+        start_time = time.time()
+        print(
+            "Epoch #{}, Learning rate: {}".format(
+                epoch, optimizer.state_dict()["param_groups"][0]["lr"]
+            )
+        )
+        train(train_loader, model, criterion, optimizer, epoch, args)
+        scheduler.step()
+        print("one epoch duration:{}".format(time.time() - start_time))
+
+    return rewind_state_dict
