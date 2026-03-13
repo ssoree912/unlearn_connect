@@ -71,7 +71,7 @@ The repository now supports fixed forget indexes, separate data/unlearning seeds
       --arch resnet18 \
       --dataset cifar10 \
       --num_indexes_to_replace 4500 \
-      --forget_seed 2 \
+      --forget_seed 1 \
       --output_path ../artifacts/forget_indices.npy
     ```
 
@@ -80,9 +80,9 @@ The repository now supports fixed forget indexes, separate data/unlearning seeds
     python generate_mask.py \
       --save_dir runs/mask_fixed \
       --model_path ${origin_model_path} \
-      --forget_seed 2 \
+      --forget_seed 1 \
       --forget_index_path ../artifacts/forget_indices.npy \
-      --unlearn_seed 2 \
+      --unlearn_seed 1 \
       --unlearn_epochs 1
     ```
 
@@ -94,7 +94,7 @@ The repository now supports fixed forget indexes, separate data/unlearning seeds
       --model_path ${origin_model_path} \
       --save_dir runs/salun_A \
       --mask_path runs/mask_fixed/with_0.5.pt \
-      --forget_seed 2 \
+      --forget_seed 1 \
       --forget_index_path ../artifacts/forget_indices.npy \
       --unlearn_seed 11 \
       --checkpoint_epochs 0,1,3,5,10
@@ -107,7 +107,7 @@ The repository now supports fixed forget indexes, separate data/unlearning seeds
       --dataset cifar10 \
       --run_dir runs/salun_A \
       --unlearn RL \
-      --forget_seed 2 \
+      --forget_seed 1 \
       --forget_index_path ../artifacts/forget_indices.npy \
       --include_final_checkpoint
     ```
@@ -120,7 +120,7 @@ The repository now supports fixed forget indexes, separate data/unlearning seeds
       --run_a_dir runs/salun_A \
       --run_b_dir runs/salun_B \
       --curve_epochs 0,1,3,5,10 \
-      --forget_seed 2 \
+      --forget_seed 1 \
       --forget_index_path ../artifacts/forget_indices.npy \
       --output_dir ../artifacts/interpolation \
       --retrain_metrics_path runs/retrain/endpoint_metrics.csv
@@ -140,9 +140,21 @@ For ratio sweeps such as 10, 20, 30, 40, 50 percent random forgetting, create on
       --permutation_output_path runs/forget_permutation.npy
     ```
 
-2. Run the full sweep end to end. This keeps the baseline outside the ratio folders and writes `mask`, `retrain`, `ft`, `ga`, `salun_A`, `salun_B`, and `interpolation` under each `runs/<ratio>/`.
+2. Run the ratio-aware sweep. The script keeps the baseline outside the ratio folders and writes `mask`, `retrain`, `ft`, `ga`, `salun_A`, `salun_B`, and `interpolation` under each `runs/<ratio>/`. By default it prioritizes the LMC path (`retrain`, `SalUn-A/B`, interpolation) and leaves `FT` and `GA` disabled unless explicitly enabled.
     ```bash
     bash run_nested_ratio_sweep.sh
     ```
 
-The sweep script can be configured through environment variables such as `BASE_CKPT`, `FORGET_SEED`, `RATIOS_CSV`, `UNLEARN_SEED_A`, `UNLEARN_SEED_B`, `CKPT_EPOCHS`, and `TRAIN_BASELINE`.
+3. To add only `FT` and `GA` final endpoints after the SalUn sweep:
+    ```bash
+    RUN_RETRAIN=0 RUN_SALUN=0 RUN_INTERPOLATION=0 RUN_FT=1 RUN_GA=1 bash run_nested_ratio_sweep.sh
+    ```
+
+The sweep script uses ratio-specific defaults derived from the paper-style search regime:
+- SalUn mask centers: `10->0.5`, `20->0.6`, `30->0.7`, `40->0.8`, `50->0.8`
+- SalUn lr centers: `10->0.013`, `20->0.008`, `30->0.005`, `40->0.003`, `50->0.001`
+- FT lr centers: `10->0.01`, `20->0.003`, `30->0.002`, `40->0.002`, `50->0.001`
+- GA lr centers: `10->3e-5`, `20->1e-5`, `30->3e-6`, `40->3e-6`, `50->1e-6`
+- GA epochs default to `5`; SalUn and FT epochs default to `10`
+
+The sweep script can be configured through environment variables such as `BASE_CKPT`, `FORGET_SEED`, `RATIOS_CSV`, `UNLEARN_SEED_A`, `UNLEARN_SEED_B`, `CKPT_EPOCHS`, `TRAIN_BASELINE`, `RUN_FT`, and `RUN_GA`.

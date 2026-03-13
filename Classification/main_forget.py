@@ -97,7 +97,7 @@ def main():
             shadow_train, batch_size=args.batch_size, shuffle=False
         )
 
-        evaluation_result["SVC_MIA_forget_efficacy"] = evaluation.SVC_MIA(
+        evaluation_result["SVC_MIA_forget_efficacy"] = experiment.safe_svc_mia(
             shadow_train=shadow_train_loader,
             shadow_test=test_loader,
             target_train=None,

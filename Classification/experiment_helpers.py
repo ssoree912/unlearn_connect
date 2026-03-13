@@ -345,7 +345,7 @@ def evaluate_model(model, data_loaders, forget_dataset, retain_dataset, criterio
     shadow_train_loader = torch.utils.data.DataLoader(
         shadow_train, batch_size=args.batch_size, shuffle=False
     )
-    mia_result = evaluation.SVC_MIA(
+    mia_result = safe_svc_mia(
         shadow_train=shadow_train_loader,
         shadow_test=test_loader,
         target_train=None,
@@ -392,3 +392,27 @@ def load_oracle_metrics(path):
 
 def numeric_metric(row, key):
     return float(row[key])
+
+
+def nan_mia_result():
+    return {
+        "correctness": np.nan,
+        "confidence": np.nan,
+        "entropy": np.nan,
+        "m_entropy": np.nan,
+        "prob": np.nan,
+    }
+
+
+def safe_svc_mia(shadow_train, shadow_test, target_train, target_test, model):
+    try:
+        return evaluation.SVC_MIA(
+            shadow_train=shadow_train,
+            shadow_test=shadow_test,
+            target_train=target_train,
+            target_test=target_test,
+            model=model,
+        )
+    except ValueError as error:
+        print(f"Skipping SVC_MIA due to non-finite features: {error}")
+        return nan_mia_result()

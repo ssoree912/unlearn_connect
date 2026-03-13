@@ -44,7 +44,10 @@ def collect_prob(data_loader, model):
                 data, target = get_x_y_from_data_dict(batch, device)
             with torch.no_grad():
                 output = model(data)
-                prob.append(F.softmax(output, dim=-1).data)
+                output_prob = F.softmax(output, dim=-1).data
+                if not torch.isfinite(output_prob).all():
+                    raise ValueError("Model probabilities contain NaN or Inf values")
+                prob.append(output_prob)
                 targets.append(target)
 
     return torch.cat(prob), torch.cat(targets)
@@ -63,6 +66,8 @@ def SVC_fit_predict(shadow_train, shadow_test, target_train, target_test):
         .reshape(n_shadow_train + n_shadow_test, -1)
     )
     Y_shadow = np.concatenate([np.ones(n_shadow_train), np.zeros(n_shadow_test)])
+    if not np.isfinite(X_shadow).all():
+        raise ValueError("Shadow features contain NaN or Inf values")
 
     clf = SVC(C=3, gamma="auto", kernel="rbf")
     clf.fit(X_shadow, Y_shadow)
@@ -71,11 +76,15 @@ def SVC_fit_predict(shadow_train, shadow_test, target_train, target_test):
 
     if n_target_train > 0:
         X_target_train = target_train.cpu().numpy().reshape(n_target_train, -1)
+        if not np.isfinite(X_target_train).all():
+            raise ValueError("Target-train features contain NaN or Inf values")
         acc_train = clf.predict(X_target_train).mean()
         accs.append(acc_train)
 
     if n_target_test > 0:
         X_target_test = target_test.cpu().numpy().reshape(n_target_test, -1)
+        if not np.isfinite(X_target_test).all():
+            raise ValueError("Target-test features contain NaN or Inf values")
         acc_test = 1 - clf.predict(X_target_test).mean()
         accs.append(acc_test)
 
