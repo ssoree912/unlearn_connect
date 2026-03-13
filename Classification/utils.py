@@ -124,7 +124,10 @@ def setup_model_dataset(args):
             mean=[0.4914, 0.4822, 0.4465], std=[0.2470, 0.2435, 0.2616]
         )
         train_full_loader, val_loader, _ = cifar10_dataloaders(
-            batch_size=args.batch_size, data_dir=args.data, num_workers=args.workers
+            batch_size=args.batch_size,
+            data_dir=args.data,
+            num_workers=args.workers,
+            seed=dataset_seed,
         )
         marked_loader, _, test_loader = cifar10_dataloaders(
             batch_size=args.batch_size,
@@ -157,7 +160,10 @@ def setup_model_dataset(args):
             mean=[0.4377, 0.4438, 0.4728], std=[0.1201, 0.1231, 0.1052]
         )
         train_full_loader, val_loader, _ = svhn_dataloaders(
-            batch_size=args.batch_size, data_dir=args.data, num_workers=args.workers
+            batch_size=args.batch_size,
+            data_dir=args.data,
+            num_workers=args.workers,
+            seed=dataset_seed,
         )
         marked_loader, _, test_loader = svhn_dataloaders(
             batch_size=args.batch_size,
@@ -185,7 +191,10 @@ def setup_model_dataset(args):
             mean=[0.5071, 0.4866, 0.4409], std=[0.2673, 0.2564, 0.2762]
         )
         train_full_loader, val_loader, _ = cifar100_dataloaders(
-            batch_size=args.batch_size, data_dir=args.data, num_workers=args.workers
+            batch_size=args.batch_size,
+            data_dir=args.data,
+            num_workers=args.workers,
+            seed=dataset_seed,
         )
         marked_loader, _, test_loader = cifar100_dataloaders(
             batch_size=args.batch_size,
@@ -213,7 +222,10 @@ def setup_model_dataset(args):
             mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
         )
         train_full_loader, val_loader, test_loader = TinyImageNet(args).data_loaders(
-            batch_size=args.batch_size, data_dir=args.data, num_workers=args.workers
+            batch_size=args.batch_size,
+            data_dir=args.data,
+            num_workers=args.workers,
+            seed=dataset_seed,
         )
         # train_full_loader, val_loader, test_loader =None, None,None
         marked_loader, _, _ = TinyImageNet(args).data_loaders(

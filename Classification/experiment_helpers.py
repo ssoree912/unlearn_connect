@@ -82,6 +82,58 @@ def sample_forget_indices(dataset, class_to_replace, num_indexes_to_replace, see
     return np.sort(np.asarray(sampled, dtype=np.int64))
 
 
+def parse_percentage_spec(spec):
+    if spec is None or str(spec).strip() == "":
+        return []
+
+    percentages = []
+    for token in str(spec).split(","):
+        token = token.strip()
+        if not token:
+            continue
+        percentage = int(token)
+        if percentage <= 0 or percentage >= 100:
+            raise ValueError("Forget percentages must be integers in (0, 100)")
+        percentages.append(percentage)
+
+    return sorted(set(percentages))
+
+
+def generate_nested_forget_index_sets(dataset, class_to_replace, percentages, seed):
+    if not percentages:
+        raise ValueError("At least one forget percentage is required")
+
+    labels = get_dataset_labels(dataset)
+    if class_to_replace in (None, -1):
+        candidate_indexes = np.arange(len(labels))
+    else:
+        candidate_indexes = np.flatnonzero(labels == class_to_replace)
+
+    candidate_indexes = np.asarray(candidate_indexes, dtype=np.int64)
+    if candidate_indexes.size == 0:
+        raise ValueError("No candidate samples available for nested forget index generation")
+
+    rng = np.random.RandomState(seed)
+    permutation = rng.permutation(candidate_indexes)
+
+    nested_sets = {}
+    previous_count = 0
+    total_candidates = candidate_indexes.size
+    for percentage in percentages:
+        count = int(round(total_candidates * (percentage / 100.0)))
+        if count <= 0 or count > total_candidates:
+            raise ValueError(
+                f"Forget percentage {percentage} produced an invalid count {count}"
+            )
+        if count < previous_count:
+            raise ValueError("Forget percentages must be non-decreasing")
+
+        nested_sets[percentage] = np.sort(permutation[:count].copy())
+        previous_count = count
+
+    return nested_sets, permutation
+
+
 def get_dataset_labels(dataset):
     if hasattr(dataset, "targets"):
         return np.asarray(dataset.targets)

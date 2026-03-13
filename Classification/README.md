@@ -125,3 +125,24 @@ The repository now supports fixed forget indexes, separate data/unlearning seeds
       --output_dir ../artifacts/interpolation \
       --retrain_metrics_path runs/retrain/endpoint_metrics.csv
     ```
+
+## Nested ratio sweep
+For ratio sweeps such as 10, 20, 30, 40, 50 percent random forgetting, create one shared permutation and use nested prefixes so that each larger forget set contains the smaller one.
+
+1. Generate nested forget index files under `runs/<ratio>/forget_indices.npy`.
+    ```bash
+    python make_nested_forget_indices.py \
+      --arch resnet18 \
+      --dataset cifar10 \
+      --forget_seed 1 \
+      --percentages 10,20,30,40,50 \
+      --output_root runs \
+      --permutation_output_path runs/forget_permutation.npy
+    ```
+
+2. Run the full sweep end to end. This keeps the baseline outside the ratio folders and writes `mask`, `retrain`, `ft`, `ga`, `salun_A`, `salun_B`, and `interpolation` under each `runs/<ratio>/`.
+    ```bash
+    bash run_nested_ratio_sweep.sh
+    ```
+
+The sweep script can be configured through environment variables such as `BASE_CKPT`, `FORGET_SEED`, `RATIOS_CSV`, `UNLEARN_SEED_A`, `UNLEARN_SEED_B`, `CKPT_EPOCHS`, and `TRAIN_BASELINE`.
