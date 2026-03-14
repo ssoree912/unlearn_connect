@@ -8,6 +8,7 @@ cd "${SCRIPT_DIR}"
 ARCH="${ARCH:-resnet18}"
 DATASET="${DATASET:-cifar10}"
 RUNS_DIR="${RUNS_DIR:-runs}"
+SUMMARY_DIR="${SUMMARY_DIR:-${RUNS_DIR}/summary}"
 BASE_DIR="${BASE_DIR:-${RUNS_DIR}/baseline}"
 BASE_CKPT="${BASE_CKPT:-${BASE_DIR}/0checkpoint.pth.tar}"
 FORGET_SEED="${FORGET_SEED:-1}"
@@ -23,6 +24,7 @@ RUN_SALUN="${RUN_SALUN:-1}"
 RUN_INTERPOLATION="${RUN_INTERPOLATION:-1}"
 RUN_FT="${RUN_FT:-0}"
 RUN_GA="${RUN_GA:-0}"
+RUN_AGGREGATION="${RUN_AGGREGATION:-1}"
 
 declare -A SALUN_MASK_CENTER=(
   [10]=0.5
@@ -306,3 +308,9 @@ for RATIO in "${RATIOS[@]}"; do
       --label "ga_${RATIO}"
   fi
 done
+
+if [[ "${RUN_AGGREGATION}" == "1" ]]; then
+  python aggregate_ratio_summaries.py \
+    --runs_dir "${RUNS_DIR}" \
+    --output_dir "${SUMMARY_DIR}"
+fi

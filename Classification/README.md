@@ -144,11 +144,21 @@ For ratio sweeps such as 10, 20, 30, 40, 50 percent random forgetting, create on
     ```bash
     bash run_nested_ratio_sweep.sh
     ```
+    After the sweep finishes, aggregate CSVs are refreshed under `runs/summary/`:
+    - `runs/summary/all_endpoint_metrics.csv`
+    - `runs/summary/all_barrier_summary.csv`
+    - `runs/summary/all_retrain_gap_summary.csv`
 
 3. To add only `FT` and `GA` final endpoints after the SalUn sweep:
     ```bash
     RUN_RETRAIN=0 RUN_SALUN=0 RUN_INTERPOLATION=0 RUN_FT=1 RUN_GA=1 bash run_nested_ratio_sweep.sh
     ```
+
+4. To regenerate CSV artifacts only from existing checkpoints, without rerunning training or unlearning:
+    ```bash
+    bash extract_ratio_csvs.sh
+    ```
+    This script rewrites per-run `endpoint_metrics.csv`, per-ratio interpolation CSVs, and the aggregate CSVs under `runs/summary/`. It skips missing runs automatically.
 
 The sweep script uses ratio-specific defaults derived from the paper-style search regime:
 - SalUn mask centers: `10->0.5`, `20->0.6`, `30->0.7`, `40->0.8`, `50->0.8`
@@ -157,4 +167,4 @@ The sweep script uses ratio-specific defaults derived from the paper-style searc
 - GA lr centers: `10->3e-5`, `20->1e-5`, `30->3e-6`, `40->3e-6`, `50->1e-6`
 - GA epochs default to `5`; SalUn and FT epochs default to `10`
 
-The sweep script can be configured through environment variables such as `BASE_CKPT`, `FORGET_SEED`, `RATIOS_CSV`, `UNLEARN_SEED_A`, `UNLEARN_SEED_B`, `CKPT_EPOCHS`, `TRAIN_BASELINE`, `RUN_FT`, and `RUN_GA`.
+The sweep script can be configured through environment variables such as `BASE_CKPT`, `FORGET_SEED`, `RATIOS_CSV`, `UNLEARN_SEED_A`, `UNLEARN_SEED_B`, `CKPT_EPOCHS`, `TRAIN_BASELINE`, `RUN_FT`, `RUN_GA`, `SUMMARY_DIR`, and `RUN_AGGREGATION`.
