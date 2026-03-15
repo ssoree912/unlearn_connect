@@ -162,15 +162,15 @@ For ratio sweeps such as 10, 20, 30, 40, 50 percent random forgetting, create on
     - `<SUMMARY_DIR>/all_barrier_summary.csv`
     - `<SUMMARY_DIR>/all_retrain_gap_summary.csv`
 
-3. The current default tuning mode is `paper_target`. It compares each candidate against the Appendix A6 SalUn row for that forgetting ratio using `ua,acc_retain,acc_test,mia`, and it enables MIA during tuning.
+3. The current default tuning mode is `retrain_oracle`. It compares each candidate against the retrain oracle for that forgetting ratio using `ua,acc_retain,acc_test,mia`.
     ```bash
     FORGET_SEED=1 RATIOS_CSV=20 bash run_nested_ratio_sweep.sh
     ```
     This is the recommended first step: tune `20%` only, inspect `best_salun_leaderboard.csv`, and only then move to the next ratio.
 
-4. To switch back to oracle-based selection instead of paper-target selection:
+4. To switch to paper-target selection instead of oracle-based selection:
     ```bash
-    SELECTOR_MODE=retrain_oracle TUNING_SKIP_MIA=1 SELECTOR_SCORE_COLS=ua,acc_retain,acc_test bash run_nested_ratio_sweep.sh
+    SELECTOR_MODE=paper_target TUNING_SKIP_MIA=0 SELECTOR_SCORE_COLS=ua,acc_retain,acc_test,mia bash run_nested_ratio_sweep.sh
     ```
 
 5. By default the sweep now stops after tuning and best-config selection. To run the final two-seed SalUn A/B checkpoints and interpolation for a ratio that already has a selected config:
@@ -192,7 +192,7 @@ For ratio sweeps such as 10, 20, 30, 40, 50 percent random forgetting, create on
 In this implementation, `generate_mask.py` saves `with_<x>.pt` where `x` is the mask keep ratio, not the paper's sparsity label. The current sweep defaults are:
 - SalUn keep grids: `10->0.2 0.3 0.4 0.5 0.6 0.7`, `20->0.2 0.3 0.4 0.5 0.6`, `30->0.1 0.2 0.3 0.4 0.5`, `40->0.1 0.2 0.3 0.4`, `50->0.1 0.2 0.3 0.4`
 - SalUn lr grids: `10->0.005 0.008 0.013 0.02 0.03`, `20->0.003 0.005 0.008 0.013 0.02`, `30->0.002 0.003 0.005 0.008 0.013`, `40->0.001 0.002 0.003 0.005 0.008`, `50->0.0005 0.001 0.002 0.003 0.005`
-- Paper SalUn targets: `10->(2.85,99.62,93.93,14.39)`, `20->(3.73,98.61,92.75,13.18)`, `30->(6.22,95.91,90.72,14.11)`, `40->(6.86,95.01,89.76,15.15)`, `50->(7.75,94.28,89.29,16.99)` for `(UA, RA, TA, MIA)`
+- Optional paper SalUn targets: `10->(2.85,99.62,93.93,14.39)`, `20->(3.73,98.61,92.75,13.18)`, `30->(6.22,95.91,90.72,14.11)`, `40->(6.86,95.01,89.76,15.15)`, `50->(7.75,94.28,89.29,16.99)` for `(UA, RA, TA, MIA)`
 - FT lr centers: `10->0.01`, `20->0.005`, `30->0.003`, `40->0.002`, `50->0.001`
 - GA lr centers: `10->3e-5`, `20->1e-5`, `30->3e-6`, `40->1e-6`, `50->1e-6`
 - GA epochs default to `5`; SalUn and FT epochs default to `10`

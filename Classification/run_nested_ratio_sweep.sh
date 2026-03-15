@@ -39,20 +39,16 @@ RUN_FT="${RUN_FT:-0}"
 RUN_GA="${RUN_GA:-0}"
 RUN_AGGREGATION="${RUN_AGGREGATION:-1}"
 SKIP_EXISTING="${SKIP_EXISTING:-1}"
-SELECTOR_MODE="${SELECTOR_MODE:-paper_target}"
+SELECTOR_MODE="${SELECTOR_MODE:-retrain_oracle}"
 if [[ -z "${TUNING_SKIP_MIA+x}" ]]; then
-  if [[ "${SELECTOR_MODE}" == "paper_target" ]]; then
+  if [[ "${SELECTOR_MODE}" == "retrain_oracle" ]]; then
     TUNING_SKIP_MIA="0"
   else
-    TUNING_SKIP_MIA="1"
+    TUNING_SKIP_MIA="0"
   fi
 fi
 if [[ -z "${SELECTOR_SCORE_COLS+x}" ]]; then
-  if [[ "${SELECTOR_MODE}" == "paper_target" ]]; then
-    SELECTOR_SCORE_COLS="ua,acc_retain,acc_test,mia"
-  else
-    SELECTOR_SCORE_COLS="ua,acc_retain,acc_test"
-  fi
+  SELECTOR_SCORE_COLS="ua,acc_retain,acc_test,mia"
 fi
 EXPERIMENT_CONFIG_PATH="${EXPERIMENT_CONFIG_PATH:-${RUNS_DIR}/experiment_config.env}"
 
@@ -171,8 +167,8 @@ maybe_run() {
   "$@"
 }
 
-if [[ "${SELECTOR_MODE}" == "paper_target" && "${TUNING_SKIP_MIA}" == "1" && "${SELECTOR_SCORE_COLS}" == *"mia"* ]]; then
-  echo "paper_target mode with SELECTOR_SCORE_COLS including mia requires TUNING_SKIP_MIA=0" >&2
+if [[ "${TUNING_SKIP_MIA}" == "1" && "${SELECTOR_SCORE_COLS}" == *"mia"* ]]; then
+  echo "SELECTOR_SCORE_COLS including mia requires TUNING_SKIP_MIA=0" >&2
   exit 1
 fi
 
@@ -513,6 +509,7 @@ for RATIO in "${RATIOS[@]}"; do
     "${TUNE_RATIO_DIR}"
 
   echo "=== Ratio ${RATIO}% ==="
+  echo "Selector mode: ${SELECTOR_MODE}"
   echo "SalUn keep grid: ${SALUN_KEEP_GRID[$RATIO]}"
   echo "SalUn lr grid:   ${SALUN_LR_GRID[$RATIO]}"
   if [[ "${SELECTOR_MODE}" == "paper_target" ]]; then
