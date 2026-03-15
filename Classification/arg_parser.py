@@ -178,6 +178,11 @@ def build_parser():
         type=str,
         help="directory under save_dir for intermediate checkpoints",
     )
+    parser.add_argument(
+        "--skip_mia",
+        action="store_true",
+        help="skip SVC_MIA computation and leave the MIA metric as NaN",
+    )
 
     return parser
 

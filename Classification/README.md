@@ -129,7 +129,7 @@ The repository now supports fixed forget indexes, separate data/unlearning seeds
 ## Nested ratio sweep
 For ratio sweeps such as 10, 20, 30, 40, 50 percent random forgetting, create one shared permutation and use nested prefixes so that each larger forget set contains the smaller one.
 
-1. Generate nested forget index files under `runs/<ratio>/forget_indices.npy`.
+1. Generate nested forget index files under `<RUNS_DIR>/<ratio>/forget_indices.npy`.
     ```bash
     python make_nested_forget_indices.py \
       --arch resnet18 \
@@ -140,31 +140,61 @@ For ratio sweeps such as 10, 20, 30, 40, 50 percent random forgetting, create on
       --permutation_output_path runs/forget_permutation.npy
     ```
 
-2. Run the ratio-aware sweep. The script keeps the baseline outside the ratio folders and writes `mask`, `retrain`, `ft`, `ga`, `salun_A`, `salun_B`, and `interpolation` under each `runs/<ratio>/`. By default it prioritizes the LMC path (`retrain`, `SalUn-A/B`, interpolation) and leaves `FT` and `GA` disabled unless explicitly enabled.
+2. Run the two-stage ratio-aware sweep. The script keeps the baseline outside the ratio folders, tunes SalUn first with a single seed under `<RUNS_DIR>/_tuning/<ratio>/keep_<keep>/lr_<lr>/`, selects the best config for each ratio, and only then runs the final `salun_A`, `salun_B`, and interpolation jobs.
     ```bash
     bash run_nested_ratio_sweep.sh
     ```
-    After the sweep finishes, aggregate CSVs are refreshed under `runs/summary/`:
-    - `runs/summary/all_endpoint_metrics.csv`
-    - `runs/summary/all_barrier_summary.csv`
-    - `runs/summary/all_retrain_gap_summary.csv`
+    To keep a parameter setting completely separate from existing checkpoints, set `EXPERIMENT_NAME` or `EXPERIMENT_ROOT`. For example:
+    ```bash
+    EXPERIMENT_NAME=keepgrid_v1_skipmia bash run_nested_ratio_sweep.sh
+    ```
+    This writes outputs under `experiments/keepgrid_v1_skipmia/runs/` while still reusing the default baseline checkpoint at `runs/baseline/0checkpoint.pth.tar` unless `BASE_CKPT` is overridden.
 
-3. To add only `FT` and `GA` final endpoints after the SalUn sweep:
+    Per ratio, the sweep writes:
+    - `<RUNS_DIR>/<ratio>/best_salun.env`
+    - `<RUNS_DIR>/<ratio>/best_salun_leaderboard.csv`
+    - `<RUNS_DIR>/<ratio>/salun_A/endpoint_metrics.csv`
+    - `<RUNS_DIR>/<ratio>/salun_B/endpoint_metrics.csv`
+    - `<RUNS_DIR>/<ratio>/interpolation/barrier_summary.csv`
+
+    After the sweep finishes, aggregate CSVs are refreshed under `<SUMMARY_DIR>/`:
+    - `<SUMMARY_DIR>/all_endpoint_metrics.csv`
+    - `<SUMMARY_DIR>/all_barrier_summary.csv`
+    - `<SUMMARY_DIR>/all_retrain_gap_summary.csv`
+
+3. The current default tuning mode is `paper_target`. It compares each candidate against the Appendix A6 SalUn row for that forgetting ratio using `ua,acc_retain,acc_test,mia`, and it enables MIA during tuning.
+    ```bash
+    FORGET_SEED=1 RATIOS_CSV=20 bash run_nested_ratio_sweep.sh
+    ```
+    This is the recommended first step: tune `20%` only, inspect `best_salun_leaderboard.csv`, and only then move to the next ratio.
+
+4. To switch back to oracle-based selection instead of paper-target selection:
+    ```bash
+    SELECTOR_MODE=retrain_oracle TUNING_SKIP_MIA=1 SELECTOR_SCORE_COLS=ua,acc_retain,acc_test bash run_nested_ratio_sweep.sh
+    ```
+
+5. By default the sweep now stops after tuning and best-config selection. To run the final two-seed SalUn A/B checkpoints and interpolation for a ratio that already has a selected config:
+    ```bash
+    FORGET_SEED=1 RATIOS_CSV=20 RUN_RETRAIN=0 RUN_TUNING=0 RUN_SALUN=1 RUN_INTERPOLATION=1 bash run_nested_ratio_sweep.sh
+    ```
+
+6. To add only `FT` and `GA` final endpoints after the SalUn sweep:
     ```bash
     RUN_RETRAIN=0 RUN_SALUN=0 RUN_INTERPOLATION=0 RUN_FT=1 RUN_GA=1 bash run_nested_ratio_sweep.sh
     ```
 
-4. To regenerate CSV artifacts only from existing checkpoints, without rerunning training or unlearning:
+7. To regenerate CSV artifacts only from existing checkpoints, without rerunning training or unlearning:
     ```bash
     bash extract_ratio_csvs.sh
     ```
-    This script rewrites per-run `endpoint_metrics.csv`, per-ratio interpolation CSVs, and the aggregate CSVs under `runs/summary/`. It skips missing runs automatically.
+    This script rewrites per-run `endpoint_metrics.csv`, per-ratio interpolation CSVs, and the aggregate CSVs under `<SUMMARY_DIR>/`. It skips missing runs automatically.
 
-The sweep script uses ratio-specific defaults derived from the paper-style search regime:
-- SalUn mask centers: `10->0.5`, `20->0.6`, `30->0.7`, `40->0.8`, `50->0.8`
-- SalUn lr centers: `10->0.013`, `20->0.008`, `30->0.005`, `40->0.003`, `50->0.001`
-- FT lr centers: `10->0.01`, `20->0.003`, `30->0.002`, `40->0.002`, `50->0.001`
-- GA lr centers: `10->3e-5`, `20->1e-5`, `30->3e-6`, `40->3e-6`, `50->1e-6`
+In this implementation, `generate_mask.py` saves `with_<x>.pt` where `x` is the mask keep ratio, not the paper's sparsity label. The current sweep defaults are:
+- SalUn keep grids: `10->0.2 0.3 0.4 0.5 0.6 0.7`, `20->0.2 0.3 0.4 0.5 0.6`, `30->0.1 0.2 0.3 0.4 0.5`, `40->0.1 0.2 0.3 0.4`, `50->0.1 0.2 0.3 0.4`
+- SalUn lr grids: `10->0.005 0.008 0.013 0.02 0.03`, `20->0.003 0.005 0.008 0.013 0.02`, `30->0.002 0.003 0.005 0.008 0.013`, `40->0.001 0.002 0.003 0.005 0.008`, `50->0.0005 0.001 0.002 0.003 0.005`
+- Paper SalUn targets: `10->(2.85,99.62,93.93,14.39)`, `20->(3.73,98.61,92.75,13.18)`, `30->(6.22,95.91,90.72,14.11)`, `40->(6.86,95.01,89.76,15.15)`, `50->(7.75,94.28,89.29,16.99)` for `(UA, RA, TA, MIA)`
+- FT lr centers: `10->0.01`, `20->0.005`, `30->0.003`, `40->0.002`, `50->0.001`
+- GA lr centers: `10->3e-5`, `20->1e-5`, `30->3e-6`, `40->1e-6`, `50->1e-6`
 - GA epochs default to `5`; SalUn and FT epochs default to `10`
 
-The sweep script can be configured through environment variables such as `BASE_CKPT`, `FORGET_SEED`, `RATIOS_CSV`, `UNLEARN_SEED_A`, `UNLEARN_SEED_B`, `CKPT_EPOCHS`, `TRAIN_BASELINE`, `RUN_FT`, `RUN_GA`, `SUMMARY_DIR`, and `RUN_AGGREGATION`.
+The sweep script can be configured through environment variables such as `BASE_CKPT`, `FORGET_SEED`, `RATIOS_CSV`, `UNLEARN_SEED_TUNE`, `UNLEARN_SEED_A`, `UNLEARN_SEED_B`, `CKPT_EPOCHS`, `TRAIN_BASELINE`, `RUN_TUNING`, `RUN_SALUN`, `RUN_INTERPOLATION`, `RUN_FT`, `RUN_GA`, `SELECTOR_MODE`, `TUNING_SKIP_MIA`, `SELECTOR_SCORE_COLS`, `SUMMARY_DIR`, and `RUN_AGGREGATION`.

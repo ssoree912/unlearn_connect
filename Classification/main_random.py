@@ -91,7 +91,7 @@ def main():
         in distribution: retain
         out of distribution: test
         target: (, forget)"""
-    if "SVC_MIA_forget_efficacy" not in evaluation_result:
+    if not args.skip_mia and "SVC_MIA_forget_efficacy" not in evaluation_result:
         test_len = len(test_loader.dataset)
         utils.dataset_convert_to_test(retain_dataset, args)
         utils.dataset_convert_to_test(unlearn_data_loaders["forget"].dataset, args)
@@ -109,6 +109,9 @@ def main():
             target_test=unlearn_data_loaders["forget"],
             model=model,
         )
+        unlearn.save_unlearn_checkpoint(model, evaluation_result, args)
+    elif args.skip_mia and "SVC_MIA_forget_efficacy" not in evaluation_result:
+        evaluation_result["SVC_MIA_forget_efficacy"] = experiment.nan_mia_result()
         unlearn.save_unlearn_checkpoint(model, evaluation_result, args)
 
     unlearn.save_unlearn_checkpoint(model, evaluation_result, args)

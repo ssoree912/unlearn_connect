@@ -7,7 +7,17 @@ cd "${SCRIPT_DIR}"
 
 ARCH="${ARCH:-resnet18}"
 DATASET="${DATASET:-cifar10}"
-RUNS_DIR="${RUNS_DIR:-runs}"
+EXPERIMENT_NAME="${EXPERIMENT_NAME:-}"
+EXPERIMENT_ROOT="${EXPERIMENT_ROOT:-}"
+if [[ -z "${RUNS_DIR:-}" ]]; then
+  if [[ -n "${EXPERIMENT_ROOT}" ]]; then
+    RUNS_DIR="${EXPERIMENT_ROOT}/runs"
+  elif [[ -n "${EXPERIMENT_NAME}" ]]; then
+    RUNS_DIR="experiments/${EXPERIMENT_NAME}/runs"
+  else
+    RUNS_DIR="runs"
+  fi
+fi
 SUMMARY_DIR="${SUMMARY_DIR:-${RUNS_DIR}/summary}"
 FORGET_SEED="${FORGET_SEED:-1}"
 RATIOS_CSV="${RATIOS_CSV:-10,20,30,40,50}"

@@ -64,6 +64,10 @@ def load_epoch_state(run_dir, checkpoint_dir, epoch, device):
 
 
 def compute_barrier(curve_rows, key):
+    for row in curve_rows:
+        if not experiment.is_finite_number(row[key]):
+            return np.nan, np.nan
+
     start_value = float(curve_rows[0][key])
     end_value = float(curve_rows[-1][key])
     barrier = []
@@ -158,6 +162,7 @@ def main():
                     "lambda": float(lambda_value),
                     "checkpoint_path_a": path_a,
                     "checkpoint_path_b": path_b,
+                    "valid_run": metrics["valid_run"],
                     "loss_retain": metrics["loss_retain"],
                     "loss_forget": metrics["loss_forget"],
                     "loss_val": metrics["loss_val"],
@@ -179,6 +184,7 @@ def main():
                 "lambda",
                 "checkpoint_path_a",
                 "checkpoint_path_b",
+                "valid_run",
                 "loss_retain",
                 "loss_forget",
                 "loss_val",

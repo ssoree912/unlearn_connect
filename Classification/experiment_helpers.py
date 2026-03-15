@@ -1,5 +1,6 @@
 import copy
 import csv
+import math
 import os
 import re
 from collections import OrderedDict
@@ -305,13 +306,20 @@ def evaluate_loader(loader, model, criterion, args):
     top1 = utils.AverageMeter()
     model.eval()
     device = next(model.parameters()).device
+    valid = True
 
     with torch.no_grad():
         if args.imagenet_arch:
             for data in loader:
                 image, target = get_x_y_from_data_dict(data, device)
                 output = model(image)
+                if not torch.isfinite(output).all():
+                    valid = False
+                    break
                 loss = criterion(output, target)
+                if not torch.isfinite(loss):
+                    valid = False
+                    break
 
                 prec1 = utils.accuracy(output.float().data, target)[0]
                 losses.update(loss.float().item(), image.size(0))
@@ -321,13 +329,22 @@ def evaluate_loader(loader, model, criterion, args):
                 image = image.to(device)
                 target = target.to(device)
                 output = model(image)
+                if not torch.isfinite(output).all():
+                    valid = False
+                    break
                 loss = criterion(output, target)
+                if not torch.isfinite(loss):
+                    valid = False
+                    break
 
                 prec1 = utils.accuracy(output.float().data, target)[0]
                 losses.update(loss.float().item(), image.size(0))
                 top1.update(prec1.item(), image.size(0))
 
-    return {"loss": losses.avg, "acc": top1.avg}
+    if not valid:
+        return {"loss": np.nan, "acc": np.nan, "valid": False}
+
+    return {"loss": losses.avg, "acc": top1.avg, "valid": True}
 
 
 def evaluate_model(model, data_loaders, forget_dataset, retain_dataset, criterion, args):
@@ -335,23 +352,30 @@ def evaluate_model(model, data_loaders, forget_dataset, retain_dataset, criterio
     for loader in data_loaders.values():
         utils.dataset_convert_to_test(loader.dataset, args)
 
+    valid_run = True
     for split_name, loader in data_loaders.items():
         split_metrics[split_name] = evaluate_loader(loader, model, criterion, args)
+        valid_run = valid_run and split_metrics[split_name]["valid"]
 
-    test_loader = data_loaders["test"]
-    forget_loader = data_loaders["forget"]
+    if getattr(args, "skip_mia", False) or not valid_run:
+        mia_result = nan_mia_result()
+    else:
+        test_loader = data_loaders["test"]
+        forget_loader = data_loaders["forget"]
 
-    shadow_train = torch.utils.data.Subset(retain_dataset, list(range(len(test_loader.dataset))))
-    shadow_train_loader = torch.utils.data.DataLoader(
-        shadow_train, batch_size=args.batch_size, shuffle=False
-    )
-    mia_result = safe_svc_mia(
-        shadow_train=shadow_train_loader,
-        shadow_test=test_loader,
-        target_train=None,
-        target_test=forget_loader,
-        model=model,
-    )
+        shadow_train = torch.utils.data.Subset(
+            retain_dataset, list(range(len(test_loader.dataset)))
+        )
+        shadow_train_loader = torch.utils.data.DataLoader(
+            shadow_train, batch_size=args.batch_size, shuffle=False
+        )
+        mia_result = safe_svc_mia(
+            shadow_train=shadow_train_loader,
+            shadow_test=test_loader,
+            target_train=None,
+            target_test=forget_loader,
+            model=model,
+        )
 
     return {
         "acc_retain": split_metrics["retain"]["acc"],
@@ -365,7 +389,15 @@ def evaluate_model(model, data_loaders, forget_dataset, retain_dataset, criterio
         "ua": 100.0 - split_metrics["forget"]["acc"],
         "mia": 100.0 * float(mia_result["confidence"]),
         "svc_mia_forget_efficacy": mia_result,
+        "valid_run": valid_run,
     }
+
+
+def is_finite_number(value):
+    try:
+        return math.isfinite(float(value))
+    except (TypeError, ValueError):
+        return False
 
 
 def write_csv(path, rows, fieldnames):
