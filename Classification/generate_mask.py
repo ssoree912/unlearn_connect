@@ -10,6 +10,28 @@ import unlearn
 import utils
 
 
+def parse_mask_keep_ratio_specs(spec):
+    if spec is None:
+        default_tokens = ["0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9", "1.0"]
+        return [(token, float(token)) for token in default_tokens]
+
+    parsed = []
+    seen = set()
+    for raw_token in str(spec).split(","):
+        token = raw_token.strip()
+        if not token or token in seen:
+            continue
+        value = float(token)
+        if value <= 0 or value > 1:
+            raise ValueError(f"Mask keep ratio must be in (0, 1], got {token}")
+        parsed.append((token, value))
+        seen.add(token)
+
+    if not parsed:
+        raise ValueError("mask_keep_ratios must contain at least one valid ratio")
+    return parsed
+
+
 def save_gradient_ratio(data_loaders, model, criterion, args):
     optimizer = torch.optim.SGD(
         model.parameters(),
@@ -46,9 +68,9 @@ def save_gradient_ratio(data_loaders, model, criterion, args):
         for name in gradients:
             gradients[name] = torch.abs_(gradients[name])
 
-    threshold_list = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+    threshold_specs = parse_mask_keep_ratio_specs(args.mask_keep_ratios)
 
-    for i in threshold_list:
+    for label, keep_ratio in threshold_specs:
         sorted_dict_positions = {}
         hard_dict = {}
 
@@ -56,7 +78,7 @@ def save_gradient_ratio(data_loaders, model, criterion, args):
         all_elements = - torch.cat([tensor.flatten() for tensor in gradients.values()])
 
         # Calculate the threshold index for the top 10% elements
-        threshold_index = int(len(all_elements) * i)
+        threshold_index = int(len(all_elements) * keep_ratio)
 
         # Calculate positions of all elements
         positions = torch.argsort(all_elements)
@@ -78,7 +100,7 @@ def save_gradient_ratio(data_loaders, model, criterion, args):
             hard_dict[key] = threshold_tensor
             start_index += num_elements
 
-        torch.save(hard_dict, os.path.join(args.save_dir, "with_{}.pt".format(i)))
+        torch.save(hard_dict, os.path.join(args.save_dir, "with_{}.pt".format(label)))
 
 
 def main():

@@ -155,6 +155,12 @@ def build_parser():
     parser.add_argument("--alpha", default=0.2, type=float, help="unlearn noise")
     parser.add_argument("--mask_path", default=None, type=str, help="the path of saliency map")
     parser.add_argument(
+        "--mask_keep_ratios",
+        default=None,
+        type=str,
+        help="comma-separated mask keep ratios for generate_mask.py, e.g. 0.35,0.40,0.45,0.50",
+    )
+    parser.add_argument(
         "--forget_index_path",
         default=None,
         type=str,

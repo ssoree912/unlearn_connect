@@ -328,6 +328,7 @@ run_retrain_and_eval() {
 generate_masks() {
   local mask_dir="$1"
   local forget_idx="$2"
+  local keep_ratios_csv="$3"
 
   python generate_mask.py \
     --arch "${ARCH}" \
@@ -337,7 +338,35 @@ generate_masks() {
     --forget_seed "${FORGET_SEED}" \
     --forget_index_path "${forget_idx}" \
     --unlearn_seed "${FORGET_SEED}" \
-    --unlearn_epochs 1
+    --unlearn_epochs 1 \
+    --mask_keep_ratios "${keep_ratios_csv}"
+}
+
+mask_keep_ratios_csv() {
+  local ratio="$1"
+  local joined=""
+  local keep_ratio
+  for keep_ratio in ${SALUN_KEEP_GRID[$ratio]}; do
+    if [[ -n "${joined}" ]]; then
+      joined+=","
+    fi
+    joined+="${keep_ratio}"
+  done
+  echo "${joined}"
+}
+
+all_required_masks_exist() {
+  local mask_dir="$1"
+  local ratio="$2"
+  local keep_ratio
+
+  for keep_ratio in ${SALUN_KEEP_GRID[$ratio]}; do
+    if [[ ! -f "${mask_dir}/with_${keep_ratio}.pt" ]]; then
+      return 1
+    fi
+  done
+
+  return 0
 }
 
 run_tuning_trial_and_eval() {
@@ -623,8 +652,11 @@ for RATIO in "${RATIOS[@]}"; do
     ensure_retrain_metrics "${RETRAIN_DIR}/endpoint_metrics.csv"
   fi
 
-  maybe_run "${MASK_DIR}/with_1.0.pt" \
-    generate_masks "${MASK_DIR}" "${FORGET_IDX}"
+  if all_required_masks_exist "${MASK_DIR}" "${RATIO}"; then
+    echo "[skip] all required masks already exist under ${MASK_DIR}"
+  else
+    generate_masks "${MASK_DIR}" "${FORGET_IDX}" "$(mask_keep_ratios_csv "${RATIO}")"
+  fi
 
   if [[ "${RUN_TUNING}" == "1" ]]; then
     for KEEP_RATIO in ${SALUN_KEEP_GRID[$RATIO]}; do
