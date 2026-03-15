@@ -190,8 +190,8 @@ For ratio sweeps such as 10, 20, 30, 40, 50 percent random forgetting, create on
     This script rewrites per-run `endpoint_metrics.csv`, per-ratio interpolation CSVs, and the aggregate CSVs under `<SUMMARY_DIR>/`. It skips missing runs automatically.
 
 In this implementation, `generate_mask.py` saves `with_<x>.pt` where `x` is the mask keep ratio, not the paper's sparsity label. The current sweep defaults are:
-- SalUn keep grids: `10->0.2 0.3 0.4 0.5 0.6 0.7`, `20->0.35 0.40 0.45 0.50`, `30->0.1 0.2 0.3 0.4 0.5`, `40->0.1 0.2 0.3 0.4`, `50->0.1 0.2 0.3 0.4`
-- SalUn lr grids: `10->0.005 0.008 0.013 0.02 0.03`, `20->0.014 0.015 0.016 0.017`, `30->0.002 0.003 0.005 0.008 0.013`, `40->0.001 0.002 0.003 0.005 0.008`, `50->0.0005 0.001 0.002 0.003 0.005`
+- SalUn keep grids: `10->0.2 0.3 0.4 0.5 0.6 0.7`, `20->0.35 0.40 0.45 0.50`, `30->0.28 0.30 0.32 0.34 0.35 0.36 0.38`, `40->0.1 0.2 0.3 0.4`, `50->0.1 0.2 0.3 0.4`
+- SalUn lr grids: `10->0.005 0.008 0.013 0.02 0.03`, `20->0.014 0.015 0.016 0.017`, `30->0.0135 0.014 0.015 0.016 0.017`, `40->0.001 0.002 0.003 0.005 0.008`, `50->0.0005 0.001 0.002 0.003 0.005`
 - SalUn epoch grids: `10->10`, `20->10 12 15`, `30->10`, `40->10`, `50->10`
 - Tuning checkpoint epochs default to `6,8,10,12,15`, filtered by each candidate's unlearning epoch count
 - For unlearning epochs `10/12/15`, the default learning-rate decay milestones are `5,8 / 6,10 / 8,12`
