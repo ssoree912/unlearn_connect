@@ -7,7 +7,7 @@ import shlex
 from pathlib import Path
 
 
-TRIAL_RE = re.compile(r"keep_([^/]+)/lr_([^/]+)")
+TRIAL_RE = re.compile(r"keep_([^/]+)/lr_([^/]+)/epochs_([^/]+)")
 
 
 def parse_args():
@@ -66,6 +66,18 @@ def parse_args():
     parser.add_argument("--target_loss_forget", default=None, type=float)
     parser.add_argument("--target_loss_val", default=None, type=float)
     parser.add_argument("--target_loss_test", default=None, type=float)
+    parser.add_argument(
+        "--min_acc_retain",
+        default=None,
+        type=float,
+        help="optional hard lower bound on retain accuracy",
+    )
+    parser.add_argument(
+        "--min_acc_test",
+        default=None,
+        type=float,
+        help="optional hard lower bound on test accuracy",
+    )
     return parser.parse_args()
 
 
@@ -157,7 +169,7 @@ def parse_trial_info(csv_path):
     match = TRIAL_RE.search(str(csv_path.parent).replace(os.sep, "/"))
     if match is None:
         return None
-    return match.group(1), match.group(2)
+    return match.group(1), match.group(2), match.group(3)
 
 
 def is_valid_candidate(row, score_cols):
@@ -169,6 +181,58 @@ def is_valid_candidate(row, score_cols):
         if col not in row or not is_finite_number(row[col]):
             return False
     return True
+
+
+def meets_constraints(row, args):
+    if args.min_acc_retain is not None:
+        if "acc_retain" not in row or not is_finite_number(row["acc_retain"]):
+            return False
+        if to_float(row["acc_retain"]) < args.min_acc_retain:
+            return False
+    if args.min_acc_test is not None:
+        if "acc_test" not in row or not is_finite_number(row["acc_test"]):
+            return False
+        if to_float(row["acc_test"]) < args.min_acc_test:
+            return False
+    return True
+
+
+def build_record(row, keep_ratio, lr, trial_unlearn_epochs, reference_row, args, reference_name, score_cols, csv_path):
+    record = {
+        "keep_ratio": keep_ratio,
+        "lr": lr,
+        "trial_csv": str(csv_path),
+        "valid_run": row.get("valid_run", True),
+        "selected_epoch": int(float(row["epoch"])) if is_finite_number(row.get("epoch")) else None,
+        "trial_unlearn_epochs": int(float(trial_unlearn_epochs)) if is_finite_number(trial_unlearn_epochs) else trial_unlearn_epochs,
+        "reference_mode": args.reference_mode,
+        "reference_name": reference_name,
+    }
+
+    score_terms = []
+    for col in score_cols:
+        reference_value = to_float(reference_row[col])
+        trial_value = to_float(row[col])
+        gap = trial_value - reference_value
+        record[col] = trial_value
+        record[f"reference_{col}"] = reference_value
+        record[f"gap_{col}"] = gap
+        record[f"abs_gap_{col}"] = abs(gap)
+        score_terms.append(abs(gap))
+
+    if (
+        "acc_test" in row
+        and is_finite_number(row["acc_test"])
+        and is_finite_number(reference_row.get("acc_test"))
+        and to_float(row["acc_test"]) < to_float(reference_row["acc_test"]) - 2.0
+    ):
+        record["hard_penalty"] = 10.0
+        score_terms.append(10.0)
+    else:
+        record["hard_penalty"] = 0.0
+
+    record["score"] = sum(score_terms) / len(score_terms)
+    return record
 
 
 def collect_fieldnames(rows, preferred_prefix):
@@ -201,45 +265,50 @@ def main():
         if trial is None:
             continue
 
-        keep_ratio, lr = trial
-        row = load_final_row(csv_path)
-        if not is_valid_candidate(row, score_cols):
+        keep_ratio, lr, trial_unlearn_epochs = trial
+        rows = read_csv_rows(csv_path)
+        if not rows:
             continue
 
-        record = {
-            "keep_ratio": keep_ratio,
-            "lr": lr,
-            "trial_csv": str(csv_path),
-            "valid_run": row.get("valid_run", True),
-            "epoch": int(float(row["epoch"])) if is_finite_number(row.get("epoch")) else None,
-            "reference_mode": args.reference_mode,
-            "reference_name": reference_name,
-        }
+        best_record = None
+        for row in rows:
+            if not is_valid_candidate(row, score_cols):
+                continue
+            if not meets_constraints(row, args):
+                continue
 
-        score_terms = []
-        for col in score_cols:
-            reference_value = to_float(reference_row[col])
-            trial_value = to_float(row[col])
-            gap = trial_value - reference_value
-            record[col] = trial_value
-            record[f"reference_{col}"] = reference_value
-            record[f"gap_{col}"] = gap
-            record[f"abs_gap_{col}"] = abs(gap)
-            score_terms.append(abs(gap))
+            record = build_record(
+                row,
+                keep_ratio,
+                lr,
+                trial_unlearn_epochs,
+                reference_row,
+                args,
+                reference_name,
+                score_cols,
+                csv_path,
+            )
+            if best_record is None:
+                best_record = record
+                continue
 
-        if (
-            "acc_test" in row
-            and is_finite_number(row["acc_test"])
-            and is_finite_number(reference_row.get("acc_test"))
-            and to_float(row["acc_test"]) < to_float(reference_row["acc_test"]) - 2.0
-        ):
-            record["hard_penalty"] = 10.0
-            score_terms.append(10.0)
-        else:
-            record["hard_penalty"] = 0.0
+            current_key = (
+                record["score"],
+                record.get("abs_gap_ua", math.inf),
+                record.get("abs_gap_acc_test", math.inf),
+                record["selected_epoch"] if record["selected_epoch"] is not None else math.inf,
+            )
+            best_key = (
+                best_record["score"],
+                best_record.get("abs_gap_ua", math.inf),
+                best_record.get("abs_gap_acc_test", math.inf),
+                best_record["selected_epoch"] if best_record["selected_epoch"] is not None else math.inf,
+            )
+            if current_key < best_key:
+                best_record = record
 
-        record["score"] = sum(score_terms) / len(score_terms)
-        candidates.append(record)
+        if best_record is not None:
+            candidates.append(best_record)
 
     if not candidates:
         raise RuntimeError(f"No valid SalUn tuning runs found under {args.tune_root}")
@@ -261,7 +330,8 @@ def main():
             "keep_ratio",
             "lr",
             "trial_csv",
-            "epoch",
+            "selected_epoch",
+            "trial_unlearn_epochs",
             "valid_run",
             "score",
             "hard_penalty",
@@ -273,6 +343,8 @@ def main():
     with open(args.output_env, "w", encoding="utf-8") as handle:
         handle.write(f"BEST_KEEP_RATIO={shlex.quote(str(best['keep_ratio']))}\n")
         handle.write(f"BEST_LR={shlex.quote(str(best['lr']))}\n")
+        handle.write(f"BEST_EPOCH={shlex.quote(str(best['selected_epoch']))}\n")
+        handle.write(f"BEST_TRIAL_UNLEARN_EPOCHS={shlex.quote(str(best['trial_unlearn_epochs']))}\n")
         handle.write(f"BEST_SCORE={shlex.quote(str(best['score']))}\n")
         handle.write(f"BEST_TRIAL_CSV={shlex.quote(str(best['trial_csv']))}\n")
         handle.write(f"BEST_REFERENCE_MODE={shlex.quote(str(best['reference_mode']))}\n")
@@ -281,7 +353,7 @@ def main():
     for row in ranked[:10]:
         print(row)
     print(
-        f"[selected] keep={best['keep_ratio']} lr={best['lr']} score={best['score']:.6f}"
+        f"[selected] keep={best['keep_ratio']} lr={best['lr']} epoch={best['selected_epoch']} score={best['score']:.6f}"
     )
 
 
