@@ -7,12 +7,13 @@ import shlex
 from pathlib import Path
 
 
-TRIAL_RE = re.compile(r"keep_([^/]+)/lr_([^/]+)/epochs_([^/]+)")
+TRIAL_RE_WITH_EPOCH = re.compile(r"keep_([^/]+)/lr_([^/]+)/epochs_([^/]+)")
+TRIAL_RE_LEGACY = re.compile(r"keep_([^/]+)/lr_([^/]+)$")
 
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Select the best SalUn tuning run for one ratio"
+        description="Select the best SalUn tuning run for one ratio from legacy or current tuning layouts"
     )
     parser.add_argument(
         "--tune_root",
@@ -165,11 +166,38 @@ def build_reference_row(args, score_cols):
     return args.reference_name or "paper_target", reference_row
 
 
-def parse_trial_info(csv_path):
-    match = TRIAL_RE.search(str(csv_path.parent).replace(os.sep, "/"))
-    if match is None:
+def infer_trial_unlearn_epochs(rows):
+    if not rows or "epoch" not in rows[0]:
         return None
-    return match.group(1), match.group(2), match.group(3)
+
+    best_epoch = None
+    for row in rows:
+        epoch_value = row.get("epoch")
+        if not is_finite_number(epoch_value):
+            continue
+        epoch = int(float(epoch_value))
+        if best_epoch is None or epoch > best_epoch:
+            best_epoch = epoch
+    return best_epoch
+
+
+def parse_trial_info(csv_path, rows):
+    trial_dir = str(csv_path.parent).replace(os.sep, "/")
+
+    match = TRIAL_RE_WITH_EPOCH.search(trial_dir)
+    if match is not None:
+        return match.group(1), match.group(2), match.group(3)
+
+    legacy_match = TRIAL_RE_LEGACY.search(trial_dir)
+    if legacy_match is not None:
+        inferred_epochs = infer_trial_unlearn_epochs(rows)
+        return (
+            legacy_match.group(1),
+            legacy_match.group(2),
+            inferred_epochs if inferred_epochs is not None else "unknown",
+        )
+
+    return None
 
 
 def is_valid_candidate(row, score_cols):
@@ -197,7 +225,17 @@ def meets_constraints(row, args):
     return True
 
 
-def build_record(row, keep_ratio, lr, trial_unlearn_epochs, reference_row, args, reference_name, score_cols, csv_path):
+def build_record(
+    row,
+    keep_ratio,
+    lr,
+    trial_unlearn_epochs,
+    reference_row,
+    args,
+    reference_name,
+    score_cols,
+    csv_path,
+):
     record = {
         "keep_ratio": keep_ratio,
         "lr": lr,
@@ -260,14 +298,18 @@ def main():
 
     candidates = []
     tune_root = Path(args.tune_root)
+    num_csv = 0
+    num_parsed = 0
     for csv_path in tune_root.rglob("endpoint_metrics.csv"):
+        num_csv += 1
         rows = read_csv_rows(csv_path)
         if not rows:
             continue
 
-        trial = parse_trial_info(csv_path)
+        trial = parse_trial_info(csv_path, rows)
         if trial is None:
             continue
+        num_parsed += 1
 
         keep_ratio, lr, trial_unlearn_epochs = trial
 
@@ -312,7 +354,12 @@ def main():
             candidates.append(best_record)
 
     if not candidates:
-        raise RuntimeError(f"No valid SalUn tuning runs found under {args.tune_root}")
+        raise RuntimeError(
+            "No valid SalUn tuning runs found under "
+            f"{args.tune_root} (found {num_csv} endpoint_metrics.csv files, "
+            f"parsed {num_parsed} tuning directories). "
+            "Check whether the runs contain finite values for the requested score columns."
+        )
 
     def sort_key(record):
         return (
