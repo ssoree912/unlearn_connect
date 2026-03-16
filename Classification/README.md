@@ -153,6 +153,7 @@ For ratio sweeps such as 10, 20, 30, 40, 50 percent random forgetting, create on
     Per ratio, the sweep writes:
     - `<RUNS_DIR>/<ratio>/best_salun.env`
     - `<RUNS_DIR>/<ratio>/best_salun_leaderboard.csv`
+    - `<RUNS_DIR>/<ratio>/all_tuning_trials.csv`
     - `<RUNS_DIR>/<ratio>/salun_A/endpoint_metrics.csv`
     - `<RUNS_DIR>/<ratio>/salun_B/endpoint_metrics.csv`
     - `<RUNS_DIR>/<ratio>/interpolation/barrier_summary.csv`

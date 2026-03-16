@@ -490,6 +490,45 @@ select_best_config() {
   python select_best_salun.py "${selector_args[@]}"
 }
 
+collect_tuning_rows() {
+  local ratio="$1"
+  local tune_root="$2"
+  local retrain_csv="$3"
+  local output_csv="$4"
+
+  local collector_args=(
+    --tune_root "${tune_root}"
+    --output_csv "${output_csv}"
+    --score_cols "${SELECTOR_SCORE_COLS}"
+    --score_weights "${SELECTOR_SCORE_WEIGHTS}"
+    --reference_mode "${SELECTOR_MODE}"
+  )
+
+  if [[ "${SELECTOR_MODE}" == "paper_target" ]]; then
+    collector_args+=(
+      --reference_name "paper_salun_ratio_${ratio}"
+      --target_ua "${PAPER_TARGET_UA[$ratio]}"
+      --target_acc_retain "${PAPER_TARGET_ACC_RETAIN[$ratio]}"
+      --target_acc_test "${PAPER_TARGET_ACC_TEST[$ratio]}"
+      --target_mia "${PAPER_TARGET_MIA[$ratio]}"
+    )
+  else
+    collector_args+=(
+      --reference_name "retrain_oracle_ratio_${ratio}"
+      --retrain_metrics_path "${retrain_csv}"
+    )
+  fi
+
+  if [[ -n "${SELECTOR_MIN_ACC_RETAIN[$ratio]+x}" ]]; then
+    collector_args+=(--min_acc_retain "${SELECTOR_MIN_ACC_RETAIN[$ratio]}")
+  fi
+  if [[ -n "${SELECTOR_MIN_ACC_TEST[$ratio]+x}" ]]; then
+    collector_args+=(--min_acc_test "${SELECTOR_MIN_ACC_TEST[$ratio]}")
+  fi
+
+  python collect_tuning_trials.py "${collector_args[@]}"
+}
+
 run_salun_seed_and_eval() {
   local ratio="$1"
   local run_dir="$2"
@@ -651,6 +690,7 @@ for RATIO in "${RATIOS[@]}"; do
   INTERP_DIR="${RATIO_DIR}/interpolation"
   BEST_ENV="${RATIO_DIR}/best_salun.env"
   BEST_CSV="${RATIO_DIR}/best_salun_leaderboard.csv"
+  ALL_TUNING_CSV="${RATIO_DIR}/all_tuning_trials.csv"
   TUNE_RATIO_DIR="${TUNE_DIR}/${RATIO}"
 
   FT_EPOCH="${FT_EPOCHS[$RATIO]}"
@@ -743,6 +783,12 @@ for RATIO in "${RATIOS[@]}"; do
         "${RETRAIN_DIR}/endpoint_metrics.csv" \
         "${BEST_ENV}" \
         "${BEST_CSV}"
+
+    collect_tuning_rows \
+      "${RATIO}" \
+      "${TUNE_RATIO_DIR}" \
+      "${RETRAIN_DIR}/endpoint_metrics.csv" \
+      "${ALL_TUNING_CSV}"
   fi
 
   [[ -f "${BEST_ENV}" ]] || { echo "Missing best config env file: ${BEST_ENV}" >&2; exit 1; }
