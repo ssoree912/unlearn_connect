@@ -166,7 +166,7 @@ For ratio sweeps such as 10, 20, 30, 40, 50 percent random forgetting, create on
     ```bash
     FORGET_SEED=1 RATIOS_CSV=20 bash run_nested_ratio_sweep.sh
     ```
-    This is the recommended first step: tune `20%` only, inspect `best_salun_leaderboard.csv`, and only then move to the next ratio. The default `20%` oracle-tuning sweep now uses `4 keep ratios x 4 learning rates x 3 epoch counts = 48` SalUn candidates.
+    This is the recommended first step: tune `20%` only, inspect `best_salun_leaderboard.csv`, and only then move to the next ratio. The default `20%` oracle-tuning sweep now uses eight explicit candidates centered on the current oracle-following region instead of a full Cartesian grid.
 
 4. To switch to paper-target selection instead of oracle-based selection:
     ```bash
@@ -190,12 +190,15 @@ For ratio sweeps such as 10, 20, 30, 40, 50 percent random forgetting, create on
     This script rewrites per-run `endpoint_metrics.csv`, per-ratio interpolation CSVs, and the aggregate CSVs under `<SUMMARY_DIR>/`. It skips missing runs automatically.
 
 In this implementation, `generate_mask.py` saves `with_<x>.pt` where `x` is the mask keep ratio, not the paper's sparsity label. The current sweep defaults are:
-- SalUn keep grids: `10->0.2 0.3 0.4 0.5 0.6 0.7`, `20->0.35 0.40 0.45 0.50`, `30->0.28 0.30 0.32 0.34 0.35 0.36 0.38`, `40->0.1 0.2 0.3 0.4`, `50->0.1 0.2 0.3 0.4`
-- SalUn lr grids: `10->0.005 0.008 0.013 0.02 0.03`, `20->0.014 0.015 0.016 0.017`, `30->0.0135 0.014 0.015 0.016 0.017`, `40->0.001 0.002 0.003 0.005 0.008`, `50->0.0005 0.001 0.002 0.003 0.005`
-- SalUn epoch grids: `10->10`, `20->10 12 15`, `30->10`, `40->10`, `50->10`
-- Tuning checkpoint epochs default to `6,8,10,12,15`, filtered by each candidate's unlearning epoch count
+- SalUn keep grids: `10->0.2 0.3 0.4 0.5 0.6 0.7`, `20->0.45 0.48 0.50 0.55 0.60`, `30->0.33 0.34 0.35 0.36`, `40->0.1 0.2 0.3 0.4`, `50->0.1 0.2 0.3 0.4`
+- SalUn lr grids: `10->0.005 0.008 0.013 0.02 0.03`, `20->0.0175 0.018 0.019`, `30->0.0165 0.017 0.0175`, `40->0.001 0.002 0.003 0.005 0.008`, `50->0.0005 0.001 0.002 0.003 0.005`
+- SalUn epoch grids: `10->10`, `20->15`, `30->10`, `40->10`, `50->10`
+- Default `20%` explicit SalUn candidate set: `(0.50,0.0175,15)`, `(0.50,0.018,15)`, `(0.55,0.0175,15)`, `(0.55,0.018,15)`, `(0.45,0.018,15)`, `(0.48,0.018,15)`, `(0.60,0.0175,15)`, `(0.50,0.019,15)`
+- Default `30%` explicit SalUn candidate set: `(0.33,0.0165,10)`, `(0.34,0.0165,10)`, `(0.34,0.017,10)`, `(0.35,0.0165,10)`, `(0.35,0.017,10)`, `(0.34,0.0175,10)`, `(0.36,0.017,10)`, `(0.36,0.0175,10)`
+- Tuning checkpoint epochs default to `6,8,10,12,15`, with `20%` overridden to `10,12,15` and `30%` overridden to `6,8,10`
 - For unlearning epochs `10/12/15`, the default learning-rate decay milestones are `5,8 / 6,10 / 8,12`
-- Oracle selector constraints currently applied at `20%`: `acc_retain >= 98.5`, `acc_test >= 92.8`
+- Oracle selector weights default to `ua=2.5,mia=1.0,acc_test=0.7,acc_retain=0.7`
+- Oracle selector constraints currently applied at `20%`: `acc_retain >= 98.3`, `acc_test >= 92.8`
 - Optional paper SalUn targets: `10->(2.85,99.62,93.93,14.39)`, `20->(3.73,98.61,92.75,13.18)`, `30->(6.22,95.91,90.72,14.11)`, `40->(6.86,95.01,89.76,15.15)`, `50->(7.75,94.28,89.29,16.99)` for `(UA, RA, TA, MIA)`
 - FT lr centers: `10->0.01`, `20->0.005`, `30->0.003`, `40->0.002`, `50->0.001`
 - GA lr centers: `10->3e-5`, `20->1e-5`, `30->3e-6`, `40->1e-6`, `50->1e-6`

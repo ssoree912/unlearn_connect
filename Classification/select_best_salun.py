@@ -45,6 +45,12 @@ def parse_args():
         help="comma-separated metrics to compare against the selected reference",
     )
     parser.add_argument(
+        "--score_weights",
+        default=None,
+        type=str,
+        help="optional comma-separated weights like ua=2.5,mia=1.0,acc_test=0.7,acc_retain=0.7",
+    )
+    parser.add_argument(
         "--reference_mode",
         default="paper_target",
         choices=["paper_target", "retrain_oracle"],
@@ -83,6 +89,28 @@ def parse_args():
 
 def parse_score_cols(spec):
     return [token.strip() for token in str(spec).split(",") if token.strip()]
+
+
+def parse_score_weights(spec, score_cols):
+    weights = {col: 1.0 for col in score_cols}
+    if spec is None:
+        return weights
+
+    for token in str(spec).split(","):
+        token = token.strip()
+        if not token:
+            continue
+        if "=" not in token:
+            raise ValueError(
+                f"Invalid score weight '{token}'. Expected format metric=value."
+            )
+        key, value = token.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if key not in weights:
+            raise ValueError(f"Unknown score weight metric '{key}'")
+        weights[key] = float(value)
+    return weights
 
 
 def read_csv_rows(path):
@@ -197,7 +225,18 @@ def meets_constraints(row, args):
     return True
 
 
-def build_record(row, keep_ratio, lr, trial_unlearn_epochs, reference_row, args, reference_name, score_cols, csv_path):
+def build_record(
+    row,
+    keep_ratio,
+    lr,
+    trial_unlearn_epochs,
+    reference_row,
+    args,
+    reference_name,
+    score_cols,
+    score_weights,
+    csv_path,
+):
     record = {
         "keep_ratio": keep_ratio,
         "lr": lr,
@@ -209,29 +248,21 @@ def build_record(row, keep_ratio, lr, trial_unlearn_epochs, reference_row, args,
         "reference_name": reference_name,
     }
 
-    score_terms = []
+    score = 0.0
     for col in score_cols:
         reference_value = to_float(reference_row[col])
         trial_value = to_float(row[col])
         gap = trial_value - reference_value
+        weight = score_weights.get(col, 1.0)
         record[col] = trial_value
         record[f"reference_{col}"] = reference_value
         record[f"gap_{col}"] = gap
         record[f"abs_gap_{col}"] = abs(gap)
-        score_terms.append(abs(gap))
+        record[f"weight_{col}"] = weight
+        score += weight * abs(gap)
 
-    if (
-        "acc_test" in row
-        and is_finite_number(row["acc_test"])
-        and is_finite_number(reference_row.get("acc_test"))
-        and to_float(row["acc_test"]) < to_float(reference_row["acc_test"]) - 2.0
-    ):
-        record["hard_penalty"] = 10.0
-        score_terms.append(10.0)
-    else:
-        record["hard_penalty"] = 0.0
-
-    record["score"] = sum(score_terms) / len(score_terms)
+    record["hard_penalty"] = 0.0
+    record["score"] = score
     return record
 
 
@@ -256,6 +287,7 @@ def write_csv(path, rows, preferred_prefix):
 def main():
     args = parse_args()
     score_cols = parse_score_cols(args.score_cols)
+    score_weights = parse_score_weights(args.score_weights, score_cols)
     reference_name, reference_row = build_reference_row(args, score_cols)
 
     candidates = []
@@ -287,6 +319,7 @@ def main():
                 args,
                 reference_name,
                 score_cols,
+                score_weights,
                 csv_path,
             )
             if best_record is None:

@@ -51,30 +51,42 @@ fi
 if [[ -z "${SELECTOR_SCORE_COLS+x}" ]]; then
   SELECTOR_SCORE_COLS="ua,acc_retain,acc_test,mia"
 fi
+if [[ -z "${SELECTOR_SCORE_WEIGHTS+x}" ]]; then
+  if [[ "${SELECTOR_MODE}" == "retrain_oracle" ]]; then
+    SELECTOR_SCORE_WEIGHTS="ua=2.5,mia=1.0,acc_test=0.7,acc_retain=0.7"
+  else
+    SELECTOR_SCORE_WEIGHTS=""
+  fi
+fi
 EXPERIMENT_CONFIG_PATH="${EXPERIMENT_CONFIG_PATH:-${RUNS_DIR}/experiment_config.env}"
 
 declare -A SALUN_KEEP_GRID=(
   [10]="0.2 0.3 0.4 0.5 0.6 0.7"
-  [20]="0.35 0.40 0.45 0.50"
-  [30]="0.28 0.30 0.32 0.34 0.35 0.36 0.38"
+  [20]="0.45 0.48 0.50 0.55 0.60"
+  [30]="0.33 0.34 0.35 0.36"
   [40]="0.1 0.2 0.3 0.4"
   [50]="0.1 0.2 0.3 0.4"
 )
 
 declare -A SALUN_LR_GRID=(
   [10]="0.005 0.008 0.013 0.02 0.03"
-  [20]="0.014 0.015 0.016 0.017"
-  [30]="0.0135 0.014 0.015 0.016 0.017"
+  [20]="0.0175 0.018 0.019"
+  [30]="0.0165 0.017 0.0175"
   [40]="0.001 0.002 0.003 0.005 0.008"
   [50]="0.0005 0.001 0.002 0.003 0.005"
 )
 
 declare -A SALUN_EPOCH_GRID=(
   [10]="10"
-  [20]="10 12 15"
+  [20]="15"
   [30]="10"
   [40]="10"
   [50]="10"
+)
+
+declare -A SALUN_CANDIDATE_SPECS=(
+  [20]="0.50:0.0175:15 0.50:0.018:15 0.55:0.0175:15 0.55:0.018:15 0.45:0.018:15 0.48:0.018:15 0.60:0.0175:15 0.50:0.019:15"
+  [30]="0.33:0.0165:10 0.34:0.0165:10 0.34:0.017:10 0.35:0.0165:10 0.35:0.017:10 0.34:0.0175:10 0.36:0.017:10 0.36:0.0175:10"
 )
 
 declare -A FT_LR_CENTER=(
@@ -142,11 +154,16 @@ declare -A PAPER_TARGET_MIA=(
 )
 
 declare -A SELECTOR_MIN_ACC_RETAIN=(
-  [20]=98.5
+  [20]=98.3
 )
 
 declare -A SELECTOR_MIN_ACC_TEST=(
   [20]=92.8
+)
+
+declare -A TUNE_CKPT_EPOCHS_BY_RATIO=(
+  [20]="10,12,15"
+  [30]="6,8,10"
 )
 
 require_ratio_config() {
@@ -163,6 +180,15 @@ require_ratio_config() {
     [[ -n "${PAPER_TARGET_ACC_RETAIN[$ratio]+x}" ]] || { echo "Missing PAPER_TARGET_ACC_RETAIN for ratio ${ratio}" >&2; exit 1; }
     [[ -n "${PAPER_TARGET_ACC_TEST[$ratio]+x}" ]] || { echo "Missing PAPER_TARGET_ACC_TEST for ratio ${ratio}" >&2; exit 1; }
     [[ -n "${PAPER_TARGET_MIA[$ratio]+x}" ]] || { echo "Missing PAPER_TARGET_MIA for ratio ${ratio}" >&2; exit 1; }
+  fi
+}
+
+ratio_tune_ckpt_spec() {
+  local ratio="$1"
+  if [[ -n "${TUNE_CKPT_EPOCHS_BY_RATIO[$ratio]+x}" ]]; then
+    echo "${TUNE_CKPT_EPOCHS_BY_RATIO[$ratio]}"
+  else
+    echo "${TUNE_CKPT_EPOCHS}"
   fi
 }
 
@@ -262,6 +288,7 @@ write_experiment_config() {
     echo "SELECTOR_MODE=${SELECTOR_MODE}"
     echo "TUNING_SKIP_MIA=${TUNING_SKIP_MIA}"
     echo "SELECTOR_SCORE_COLS=${SELECTOR_SCORE_COLS}"
+    echo "SELECTOR_SCORE_WEIGHTS=${SELECTOR_SCORE_WEIGHTS}"
     for ratio in 10 20 30 40 50; do
       if [[ -n "${SALUN_KEEP_GRID[$ratio]+x}" ]]; then
         echo "SALUN_KEEP_GRID_${ratio}=${SALUN_KEEP_GRID[$ratio]}"
@@ -271,6 +298,12 @@ write_experiment_config() {
       fi
       if [[ -n "${SALUN_EPOCH_GRID[$ratio]+x}" ]]; then
         echo "SALUN_EPOCH_GRID_${ratio}=${SALUN_EPOCH_GRID[$ratio]}"
+      fi
+      if [[ -n "${SALUN_CANDIDATE_SPECS[$ratio]+x}" ]]; then
+        echo "SALUN_CANDIDATE_SPECS_${ratio}=${SALUN_CANDIDATE_SPECS[$ratio]}"
+      fi
+      if [[ -n "${TUNE_CKPT_EPOCHS_BY_RATIO[$ratio]+x}" ]]; then
+        echo "TUNE_CKPT_EPOCHS_BY_RATIO_${ratio}=${TUNE_CKPT_EPOCHS_BY_RATIO[$ratio]}"
       fi
       if [[ -n "${PAPER_TARGET_UA[$ratio]+x}" ]]; then
         echo "PAPER_TARGET_UA_${ratio}=${PAPER_TARGET_UA[$ratio]}"
@@ -382,7 +415,7 @@ run_tuning_trial_and_eval() {
   local tuning_checkpoint_epochs
 
   tuning_decreasing_lr="$(decreasing_lr_for_unlearn_epochs "${salun_epoch}")"
-  tuning_checkpoint_epochs="$(filter_epoch_spec "${TUNE_CKPT_EPOCHS}" "${salun_epoch}")"
+  tuning_checkpoint_epochs="$(filter_epoch_spec "$(ratio_tune_ckpt_spec "${ratio}")" "${salun_epoch}")"
 
   if [[ "${TUNING_SKIP_MIA}" == "1" ]]; then
     tuning_mia_args+=(--skip_mia)
@@ -428,6 +461,7 @@ select_best_config() {
     --output_env "${output_env}"
     --output_csv "${output_csv}"
     --score_cols "${SELECTOR_SCORE_COLS}"
+    --score_weights "${SELECTOR_SCORE_WEIGHTS}"
     --reference_mode "${SELECTOR_MODE}"
   )
 
@@ -637,9 +671,13 @@ for RATIO in "${RATIOS[@]}"; do
 
   echo "=== Ratio ${RATIO}% ==="
   echo "Selector mode: ${SELECTOR_MODE}"
+  echo "Selector score weights: ${SELECTOR_SCORE_WEIGHTS}"
   echo "SalUn keep grid: ${SALUN_KEEP_GRID[$RATIO]}"
   echo "SalUn lr grid:   ${SALUN_LR_GRID[$RATIO]}"
   echo "SalUn epoch grid: ${SALUN_EPOCH_GRID[$RATIO]}"
+  if [[ -n "${SALUN_CANDIDATE_SPECS[$RATIO]+x}" ]]; then
+    echo "SalUn candidate specs: ${SALUN_CANDIDATE_SPECS[$RATIO]}"
+  fi
   if [[ "${SELECTOR_MODE}" == "paper_target" ]]; then
     echo "Paper target: ua=${PAPER_TARGET_UA[$RATIO]}, acc_retain=${PAPER_TARGET_ACC_RETAIN[$RATIO]}, acc_test=${PAPER_TARGET_ACC_TEST[$RATIO]}, mia=${PAPER_TARGET_MIA[$RATIO]}"
   fi
@@ -659,25 +697,44 @@ for RATIO in "${RATIOS[@]}"; do
   fi
 
   if [[ "${RUN_TUNING}" == "1" ]]; then
-    for KEEP_RATIO in ${SALUN_KEEP_GRID[$RATIO]}; do
-      MASK_PATH="${MASK_DIR}/with_${KEEP_RATIO}.pt"
-      [[ -f "${MASK_PATH}" ]] || { echo "Missing mask file: ${MASK_PATH}" >&2; exit 1; }
-      for LR in ${SALUN_LR_GRID[$RATIO]}; do
-        for SALUN_EPOCH in ${SALUN_EPOCH_GRID[$RATIO]}; do
-          TRIAL_DIR="${TUNE_RATIO_DIR}/keep_${KEEP_RATIO}/lr_${LR}/epochs_${SALUN_EPOCH}"
-          mkdir -p "${TRIAL_DIR}"
-          maybe_run "${TRIAL_DIR}/endpoint_metrics.csv" \
-            run_tuning_trial_and_eval \
-              "${RATIO}" \
-              "${KEEP_RATIO}" \
-              "${LR}" \
-              "${SALUN_EPOCH}" \
-              "${TRIAL_DIR}" \
-              "${MASK_PATH}" \
-              "${FORGET_IDX}"
+    if [[ -n "${SALUN_CANDIDATE_SPECS[$RATIO]+x}" ]]; then
+      for CANDIDATE_SPEC in ${SALUN_CANDIDATE_SPECS[$RATIO]}; do
+        IFS=':' read -r KEEP_RATIO LR SALUN_EPOCH <<< "${CANDIDATE_SPEC}"
+        MASK_PATH="${MASK_DIR}/with_${KEEP_RATIO}.pt"
+        [[ -f "${MASK_PATH}" ]] || { echo "Missing mask file: ${MASK_PATH}" >&2; exit 1; }
+        TRIAL_DIR="${TUNE_RATIO_DIR}/keep_${KEEP_RATIO}/lr_${LR}/epochs_${SALUN_EPOCH}"
+        mkdir -p "${TRIAL_DIR}"
+        maybe_run "${TRIAL_DIR}/endpoint_metrics.csv" \
+          run_tuning_trial_and_eval \
+            "${RATIO}" \
+            "${KEEP_RATIO}" \
+            "${LR}" \
+            "${SALUN_EPOCH}" \
+            "${TRIAL_DIR}" \
+            "${MASK_PATH}" \
+            "${FORGET_IDX}"
+      done
+    else
+      for KEEP_RATIO in ${SALUN_KEEP_GRID[$RATIO]}; do
+        MASK_PATH="${MASK_DIR}/with_${KEEP_RATIO}.pt"
+        [[ -f "${MASK_PATH}" ]] || { echo "Missing mask file: ${MASK_PATH}" >&2; exit 1; }
+        for LR in ${SALUN_LR_GRID[$RATIO]}; do
+          for SALUN_EPOCH in ${SALUN_EPOCH_GRID[$RATIO]}; do
+            TRIAL_DIR="${TUNE_RATIO_DIR}/keep_${KEEP_RATIO}/lr_${LR}/epochs_${SALUN_EPOCH}"
+            mkdir -p "${TRIAL_DIR}"
+            maybe_run "${TRIAL_DIR}/endpoint_metrics.csv" \
+              run_tuning_trial_and_eval \
+                "${RATIO}" \
+                "${KEEP_RATIO}" \
+                "${LR}" \
+                "${SALUN_EPOCH}" \
+                "${TRIAL_DIR}" \
+                "${MASK_PATH}" \
+                "${FORGET_IDX}"
+          done
         done
       done
-    done
+    fi
 
     maybe_run "${BEST_ENV}" \
       select_best_config \
