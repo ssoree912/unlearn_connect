@@ -209,3 +209,13 @@ In this implementation, `generate_mask.py` saves `with_<x>.pt` where `x` is the 
 - GA epochs default to `5`; FT epochs default to `10`
 
 The sweep script can be configured through environment variables such as `BASE_CKPT`, `FORGET_SEED`, `RATIOS_CSV`, `UNLEARN_SEED_TUNE`, `UNLEARN_SEED_A`, `UNLEARN_SEED_B`, `CKPT_EPOCHS`, `TRAIN_BASELINE`, `RUN_TUNING`, `RUN_SALUN`, `RUN_INTERPOLATION`, `RUN_FT`, `RUN_GA`, `SELECTOR_MODE`, `TUNING_SKIP_MIA`, `SELECTOR_SCORE_COLS`, `SUMMARY_DIR`, and `RUN_AGGREGATION`.
+
+For the paper-style broad sweep on `20/30/40/50%` forgetting with `10` unlearning epochs, keep ratios limited to `0.40,0.45,0.50,0.55,0.60`, and learning rates spanning the paper range `[5e-4, 5e-2]`, use:
+```bash
+FORGET_SEED=1 \
+RATIOS_CSV=20,30,40,50 \
+SALUN_GRID_PRESET=paper_20_50_keep_04_06 \
+bash run_nested_ratio_sweep.sh
+```
+
+This preset clears the ratio-specific explicit candidate lists for `20/30/40/50`, so the full grid is actually evaluated. If you want the same behavior with a custom grid, set `SALUN_DISABLE_EXPLICIT_CANDIDATES=1` and edit the corresponding `SALUN_*_GRID` values in the script or extend the preset.

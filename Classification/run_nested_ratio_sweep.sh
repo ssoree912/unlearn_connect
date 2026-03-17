@@ -59,6 +59,11 @@ if [[ -z "${SELECTOR_SCORE_WEIGHTS+x}" ]]; then
   fi
 fi
 EXPERIMENT_CONFIG_PATH="${EXPERIMENT_CONFIG_PATH:-${RUNS_DIR}/experiment_config.env}"
+SALUN_GRID_PRESET="${SALUN_GRID_PRESET:-ratio_tuned}"
+SALUN_DISABLE_EXPLICIT_CANDIDATES="${SALUN_DISABLE_EXPLICIT_CANDIDATES:-0}"
+SALUN_PAPER_KEEP_GRID_20_50="${SALUN_PAPER_KEEP_GRID_20_50:-0.40 0.45 0.50 0.55 0.60}"
+SALUN_PAPER_LR_GRID_20_50="${SALUN_PAPER_LR_GRID_20_50:-0.0005 0.001 0.002 0.005 0.01 0.02 0.05}"
+SALUN_PAPER_EPOCH_GRID_20_50="${SALUN_PAPER_EPOCH_GRID_20_50:-10}"
 
 declare -A SALUN_KEEP_GRID=(
   [10]="0.2 0.3 0.4 0.5 0.6 0.7"
@@ -169,6 +174,43 @@ declare -A TUNE_CKPT_EPOCHS_BY_RATIO=(
   [40]="4,5,6,7,8,10"
   [50]="4,5,6,7,8,10"
 )
+
+apply_salun_grid_preset() {
+  local ratio
+
+  case "${SALUN_GRID_PRESET}" in
+    ratio_tuned|"")
+      ;;
+    paper_20_50_keep_04_06)
+      for ratio in 20 30 40 50; do
+        SALUN_KEEP_GRID[$ratio]="${SALUN_PAPER_KEEP_GRID_20_50}"
+        SALUN_LR_GRID[$ratio]="${SALUN_PAPER_LR_GRID_20_50}"
+        SALUN_EPOCH_GRID[$ratio]="${SALUN_PAPER_EPOCH_GRID_20_50}"
+        unset "SALUN_CANDIDATE_SPECS[$ratio]"
+      done
+      ;;
+    *)
+      echo "Unknown SALUN_GRID_PRESET: ${SALUN_GRID_PRESET}" >&2
+      echo "Supported presets: ratio_tuned, paper_20_50_keep_04_06" >&2
+      exit 1
+      ;;
+  esac
+}
+
+apply_explicit_candidate_policy() {
+  local ratio
+
+  if [[ "${SALUN_DISABLE_EXPLICIT_CANDIDATES}" != "1" ]]; then
+    return 0
+  fi
+
+  for ratio in "${!SALUN_CANDIDATE_SPECS[@]}"; do
+    unset "SALUN_CANDIDATE_SPECS[$ratio]"
+  done
+}
+
+apply_salun_grid_preset
+apply_explicit_candidate_policy
 
 require_ratio_config() {
   local ratio="$1"
@@ -293,6 +335,11 @@ write_experiment_config() {
     echo "TUNING_SKIP_MIA=${TUNING_SKIP_MIA}"
     echo "SELECTOR_SCORE_COLS=${SELECTOR_SCORE_COLS}"
     echo "SELECTOR_SCORE_WEIGHTS=${SELECTOR_SCORE_WEIGHTS}"
+    echo "SALUN_GRID_PRESET=${SALUN_GRID_PRESET}"
+    echo "SALUN_DISABLE_EXPLICIT_CANDIDATES=${SALUN_DISABLE_EXPLICIT_CANDIDATES}"
+    echo "SALUN_PAPER_KEEP_GRID_20_50=${SALUN_PAPER_KEEP_GRID_20_50}"
+    echo "SALUN_PAPER_LR_GRID_20_50=${SALUN_PAPER_LR_GRID_20_50}"
+    echo "SALUN_PAPER_EPOCH_GRID_20_50=${SALUN_PAPER_EPOCH_GRID_20_50}"
     for ratio in 10 20 30 40 50; do
       if [[ -n "${SALUN_KEEP_GRID[$ratio]+x}" ]]; then
         echo "SALUN_KEEP_GRID_${ratio}=${SALUN_KEEP_GRID[$ratio]}"
