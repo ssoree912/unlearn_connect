@@ -115,7 +115,7 @@ def main():
     ) = utils.setup_model_dataset(args)
     model.to(device)
     utils.setup_seed(args.unlearn_seed)
-    data_loaders, forget_dataset, retain_dataset = experiment.build_unlearn_data_loaders(
+    data_loaders, forget_dataset, retain_dataset = experiment.build_eval_data_loaders(
         marked_loader, val_loader, test_loader, args
     )
     criterion = nn.CrossEntropyLoss()
@@ -132,6 +132,8 @@ def main():
         row = {
             "label": args.label or os.path.basename(args.run_dir or checkpoint_path),
             "epoch": resolve_epoch(checkpoint_path, metadata, args),
+            "global_step": metadata.get("global_step"),
+            "epoch_float": metadata.get("epoch_float"),
             "checkpoint_path": checkpoint_path,
             "runtime_seconds": metadata.get("cumulative_runtime_seconds"),
             "valid_run": metrics["valid_run"],
@@ -154,6 +156,8 @@ def main():
         fieldnames=[
             "label",
             "epoch",
+            "global_step",
+            "epoch_float",
             "checkpoint_path",
             "runtime_seconds",
             "valid_run",

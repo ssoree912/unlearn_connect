@@ -1,6 +1,7 @@
 import sys
 import time
 
+import experiment_helpers as experiment
 import torch
 import utils
 
@@ -91,6 +92,14 @@ def GA(data_loaders, model, criterion, optimizer, epoch, args, mask=None):
 
             losses.update(loss.item(), image.size(0))
             top1.update(prec1.item(), image.size(0))
+            experiment.save_requested_step_checkpoint(
+                model,
+                args,
+                epoch=epoch,
+                step_in_epoch=i + 1,
+                steps_per_epoch=len(train_loader),
+                extra_state={"train_accuracy": top1.avg},
+            )
 
             if (i + 1) % args.print_freq == 0:
                 end = time.time()
@@ -134,6 +143,14 @@ def GA(data_loaders, model, criterion, optimizer, epoch, args, mask=None):
 
             losses.update(loss.item(), image.size(0))
             top1.update(prec1.item(), image.size(0))
+            experiment.save_requested_step_checkpoint(
+                model,
+                args,
+                epoch=epoch,
+                step_in_epoch=i + 1,
+                steps_per_epoch=len(train_loader),
+                extra_state={"train_accuracy": top1.avg},
+            )
 
             if (i + 1) % args.print_freq == 0:
                 end = time.time()
@@ -187,6 +204,14 @@ def GA_l1(data_loaders, model, criterion, optimizer, epoch, args):
 
         losses.update(loss.item(), image.size(0))
         top1.update(prec1.item(), image.size(0))
+        experiment.save_requested_step_checkpoint(
+            model,
+            args,
+            epoch=epoch,
+            step_in_epoch=i + 1,
+            steps_per_epoch=len(train_loader),
+            extra_state={"train_accuracy": top1.avg},
+        )
 
         if (i + 1) % args.print_freq == 0:
             end = time.time()

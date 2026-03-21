@@ -126,6 +126,26 @@ The repository now supports fixed forget indexes, separate data/unlearning seeds
       --retrain_metrics_path runs/retrain/endpoint_metrics.csv
     ```
 
+## Step-wise connectivity protocol
+For the step-wise protocol, save aligned `step_*.pth.tar` checkpoints during unlearning and then scan the linear path between the two runs at each shared step.
+
+1. Save step checkpoints while running the two SalUn seeds.
+    ```bash
+    python main_forget.py       --arch resnet18       --dataset cifar10       --unlearn RL       --unlearn_epochs 10       --unlearn_lr 0.013       --model_path runs/baseline/0checkpoint.pth.tar       --save_dir runs/10/step_connectivity/salun_A       --mask_path runs/10/mask_fixed/with_0.5.pt       --forget_seed 1       --forget_index_path runs/10/forget_indices.npy       --unlearn_seed 11       --checkpoint_every_steps 100       --save_checkpoint_step_zero
+    ```
+    Repeat with `--unlearn_seed 22` and a different `--save_dir` for run B.
+
+2. Run the step-wise connectivity scan.
+    ```bash
+    python step_connectivity.py       --arch resnet18       --dataset cifar10       --run_a_dir runs/10/step_connectivity/salun_A       --run_b_dir runs/10/step_connectivity/salun_B       --output_dir runs/10/step_connectivity/connectivity       --ratio 10       --forget_seed 1       --forget_index_path runs/10/forget_indices.npy       --alpha_grid 0.0:0.1:1.0       --beta 0.3       --delta 0.0
+    ```
+    The script writes `run_manifest.csv`, `checkpoint_manifest.csv`, `endpoint_metrics.csv`, `path_scan.csv`, `step_summary.csv`, `full_eval.csv`, a `protocol.log`, and four PNG plots under `--output_dir`.
+
+3. For a direct end-to-end run from shell env vars, use:
+    ```bash
+    RATIO=10     MASK_PATH=runs/10/mask_fixed/with_0.5.pt     SALUN_LR=0.013     SALUN_EPOCHS=10     bash run_step_connectivity.sh
+    ```
+
 ## Nested ratio sweep
 For ratio sweeps such as 10, 20, 30, 40, 50 percent random forgetting, create one shared permutation and use nested prefixes so that each larger forget set contains the smaller one.
 

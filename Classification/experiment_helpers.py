@@ -1,5 +1,6 @@
 import copy
 import csv
+import hashlib
 import math
 import os
 import re
@@ -198,15 +199,15 @@ def build_seeded_dataloader(dataset, batch_size, seed, shuffle):
     )
 
 
-def build_unlearn_data_loaders(marked_loader, val_loader, test_loader, args):
+def _build_split_loaders(marked_loader, val_loader, test_loader, args, shuffle):
     forget_dataset = _build_subset_dataset(marked_loader.dataset, is_forget=True)
     retain_dataset = _build_subset_dataset(marked_loader.dataset, is_forget=False)
 
     forget_loader = build_seeded_dataloader(
-        forget_dataset, args.batch_size, args.unlearn_seed, shuffle=True
+        forget_dataset, args.batch_size, args.unlearn_seed, shuffle=shuffle
     )
     retain_loader = build_seeded_dataloader(
-        retain_dataset, args.batch_size, args.unlearn_seed, shuffle=True
+        retain_dataset, args.batch_size, args.unlearn_seed, shuffle=shuffle
     )
 
     print(f"number of retain dataset {len(retain_dataset)}")
@@ -219,6 +220,14 @@ def build_unlearn_data_loaders(marked_loader, val_loader, test_loader, args):
         test=test_loader,
     )
     return data_loaders, forget_dataset, retain_dataset
+
+
+def build_unlearn_data_loaders(marked_loader, val_loader, test_loader, args):
+    return _build_split_loaders(marked_loader, val_loader, test_loader, args, shuffle=True)
+
+
+def build_eval_data_loaders(marked_loader, val_loader, test_loader, args):
+    return _build_split_loaders(marked_loader, val_loader, test_loader, args, shuffle=False)
 
 
 def parse_epoch_spec(spec):
@@ -237,6 +246,22 @@ def parse_epoch_spec(spec):
     return epochs
 
 
+def parse_step_spec(spec):
+    if spec is None or str(spec).strip() == "":
+        return set()
+
+    steps = set()
+    for token in str(spec).split(","):
+        token = token.strip()
+        if not token:
+            continue
+        step = int(token)
+        if step < 0:
+            raise ValueError("Checkpoint steps must be non-negative")
+        steps.add(step)
+    return steps
+
+
 def resolve_checkpoint_dir(args, base_dir=None):
     checkpoint_dir = getattr(args, "checkpoint_dir", "checkpoints")
     if os.path.isabs(checkpoint_dir):
@@ -248,6 +273,82 @@ def resolve_checkpoint_dir(args, base_dir=None):
     return os.path.join(root_dir, checkpoint_dir)
 
 
+def file_sha256(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def maybe_file_sha256(path):
+    if path is None:
+        return None
+    if not os.path.exists(path):
+        return None
+    return file_sha256(path)
+
+
+def _get_cached_file_hash(args, cache_name, path):
+    cached = getattr(args, cache_name, None)
+    if cached is not None:
+        return cached
+    cached = maybe_file_sha256(path)
+    setattr(args, cache_name, cached)
+    return cached
+
+
+def describe_unlearn_optimizer(args):
+    return "SGD"
+
+
+def describe_unlearn_lr_schedule(args):
+    if getattr(args, "imagenet_arch", False) and getattr(args, "unlearn", None) == "retrain":
+        return f"LambdaLR(warmup={getattr(args, 'warmup', None)}, cosine)"
+    return f"MultiStepLR(milestones={getattr(args, 'decreasing_lr', None)})"
+
+
+def estimate_unlearn_steps_per_epoch(data_loaders, args):
+    method = getattr(args, "unlearn", None)
+    forget_loader = data_loaders["forget"]
+    retain_loader = data_loaders["retain"]
+
+    if method in {"FT", "FT_l1", "retrain", "FT_prune", "FT_prune_bi"}:
+        return len(retain_loader)
+    if method in {"GA", "GA_l1", "GA_prune", "GA_prune_bi", "boundary_expanding", "boundary_shrink"}:
+        return len(forget_loader)
+    if method in {"RL", "RL_proximal"}:
+        if getattr(args, "dataset", None) in {"cifar100", "TinyImagenet"}:
+            total_examples = len(forget_loader.dataset) + len(retain_loader.dataset)
+            return int(math.ceil(total_examples / float(args.batch_size)))
+        return len(forget_loader) + len(retain_loader)
+    return len(retain_loader)
+
+
+def _build_checkpoint_state(model, args, evaluation_result=None, extra_state=None):
+    base_checkpoint_path = getattr(args, "model_path", None)
+    forget_index_path = getattr(args, "forget_index_path", None)
+    state = {
+        "state_dict": model.state_dict(),
+        "evaluation_result": evaluation_result,
+        "forget_seed": getattr(args, "forget_seed", None),
+        "unlearn_seed": getattr(args, "unlearn_seed", None),
+        "unlearn": getattr(args, "unlearn", None),
+        "base_checkpoint_path": os.path.abspath(base_checkpoint_path) if base_checkpoint_path else None,
+        "base_checkpoint_hash": _get_cached_file_hash(args, "_cached_base_checkpoint_hash", base_checkpoint_path),
+        "forget_index_path": os.path.abspath(forget_index_path) if forget_index_path else None,
+        "forget_index_hash": _get_cached_file_hash(args, "_cached_forget_index_hash", forget_index_path),
+        "optimizer": describe_unlearn_optimizer(args),
+        "lr_schedule": describe_unlearn_lr_schedule(args),
+        "batch_size": getattr(args, "batch_size", None),
+        "checkpoint_every_steps": getattr(args, "checkpoint_every_steps", 0),
+        "checkpoint_steps": getattr(args, "checkpoint_steps", None),
+    }
+    if extra_state:
+        state.update(extra_state)
+    return state
+
+
 def save_requested_checkpoint(model, args, epoch, evaluation_result=None, extra_state=None):
     if epoch not in parse_epoch_spec(getattr(args, "checkpoint_epochs", None)):
         return None
@@ -256,23 +357,76 @@ def save_requested_checkpoint(model, args, epoch, evaluation_result=None, extra_
     os.makedirs(checkpoint_dir, exist_ok=True)
     checkpoint_path = os.path.join(checkpoint_dir, f"epoch_{epoch}.pth.tar")
 
-    state = {
-        "state_dict": model.state_dict(),
-        "evaluation_result": evaluation_result,
-        "epoch": epoch,
-        "forget_seed": getattr(args, "forget_seed", None),
-        "unlearn_seed": getattr(args, "unlearn_seed", None),
-        "unlearn": getattr(args, "unlearn", None),
-    }
-    if extra_state:
-        state.update(extra_state)
+    state = _build_checkpoint_state(
+        model,
+        args,
+        evaluation_result=evaluation_result,
+        extra_state={"epoch": epoch, **(extra_state or {})},
+    )
+    torch.save(state, checkpoint_path)
+    return checkpoint_path
 
+
+def save_requested_step_checkpoint(
+    model,
+    args,
+    epoch,
+    step_in_epoch,
+    steps_per_epoch,
+    evaluation_result=None,
+    extra_state=None,
+):
+    checkpoint_steps = parse_step_spec(getattr(args, "checkpoint_steps", None))
+    checkpoint_every_steps = int(getattr(args, "checkpoint_every_steps", 0) or 0)
+    global_step = int(epoch) * int(steps_per_epoch) + int(step_in_epoch)
+
+    should_save = False
+    if global_step == 0 and getattr(args, "save_checkpoint_step_zero", False):
+        should_save = True
+    if global_step in checkpoint_steps:
+        should_save = True
+    if checkpoint_every_steps > 0 and global_step > 0 and global_step % checkpoint_every_steps == 0:
+        should_save = True
+    if not should_save:
+        return None
+
+    checkpoint_dir = resolve_checkpoint_dir(args)
+    os.makedirs(checkpoint_dir, exist_ok=True)
+    checkpoint_path = os.path.join(checkpoint_dir, f"step_{global_step:06d}.pth.tar")
+    epoch_float = (
+        float(global_step) / float(steps_per_epoch) if steps_per_epoch else float(epoch)
+    )
+    total_unlearn_steps = None
+    if steps_per_epoch is not None and getattr(args, "unlearn_epochs", None) is not None:
+        total_unlearn_steps = int(steps_per_epoch) * int(args.unlearn_epochs)
+
+    state = _build_checkpoint_state(
+        model,
+        args,
+        evaluation_result=evaluation_result,
+        extra_state={
+            "epoch": epoch,
+            "step_in_epoch": int(step_in_epoch),
+            "steps_per_epoch": int(steps_per_epoch),
+            "global_step": global_step,
+            "epoch_float": epoch_float,
+            "total_unlearn_steps": total_unlearn_steps,
+            **(extra_state or {}),
+        },
+    )
     torch.save(state, checkpoint_path)
     return checkpoint_path
 
 
 def parse_epoch_from_path(path):
     match = re.search(r"epoch_(\d+)\.pth\.tar$", os.path.basename(path))
+    if match is None:
+        return None
+    return int(match.group(1))
+
+
+def parse_step_from_path(path):
+    match = re.search(r"step_(\d+)\.pth\.tar$", os.path.basename(path))
     if match is None:
         return None
     return int(match.group(1))
@@ -347,7 +501,15 @@ def evaluate_loader(loader, model, criterion, args):
     return {"loss": losses.avg, "acc": top1.avg, "valid": True}
 
 
-def evaluate_model(model, data_loaders, forget_dataset, retain_dataset, criterion, args):
+def evaluate_model(
+    model,
+    data_loaders,
+    forget_dataset,
+    retain_dataset,
+    criterion,
+    args,
+    compute_mia=True,
+):
     split_metrics = {}
     for loader in data_loaders.values():
         utils.dataset_convert_to_test(loader.dataset, args)
@@ -357,7 +519,7 @@ def evaluate_model(model, data_loaders, forget_dataset, retain_dataset, criterio
         split_metrics[split_name] = evaluate_loader(loader, model, criterion, args)
         valid_run = valid_run and split_metrics[split_name]["valid"]
 
-    if getattr(args, "skip_mia", False) or not valid_run:
+    if not compute_mia or getattr(args, "skip_mia", False) or not valid_run:
         mia_result = nan_mia_result()
     else:
         test_loader = data_loaders["test"]

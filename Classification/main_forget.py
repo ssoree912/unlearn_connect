@@ -37,6 +37,9 @@ def main():
     unlearn_data_loaders, forget_dataset, retain_dataset = (
         experiment.build_unlearn_data_loaders(marked_loader, val_loader, test_loader, args)
     )
+    step_checkpoints_per_epoch = experiment.estimate_unlearn_steps_per_epoch(
+        unlearn_data_loaders, args
+    )
 
     criterion = nn.CrossEntropyLoss()
     evaluation_result = None
@@ -57,6 +60,14 @@ def main():
                 model,
                 args,
                 epoch=0,
+                extra_state={"cumulative_runtime_seconds": 0.0},
+            )
+            experiment.save_requested_step_checkpoint(
+                model,
+                args,
+                epoch=0,
+                step_in_epoch=0,
+                steps_per_epoch=step_checkpoints_per_epoch,
                 extra_state={"cumulative_runtime_seconds": 0.0},
             )
 

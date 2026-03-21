@@ -185,6 +185,23 @@ def build_parser():
         help="directory under save_dir for intermediate checkpoints",
     )
     parser.add_argument(
+        "--checkpoint_steps",
+        default=None,
+        type=str,
+        help="comma-separated global steps to save intermediate checkpoints, e.g. 0,100,200",
+    )
+    parser.add_argument(
+        "--checkpoint_every_steps",
+        default=0,
+        type=int,
+        help="save an intermediate checkpoint every N optimizer steps (0 disables periodic step saves)",
+    )
+    parser.add_argument(
+        "--save_checkpoint_step_zero",
+        action="store_true",
+        help="save the pre-unlearning model as step_000000 before the first optimizer step",
+    )
+    parser.add_argument(
         "--skip_mia",
         action="store_true",
         help="skip SVC_MIA computation and leave the MIA metric as NaN",

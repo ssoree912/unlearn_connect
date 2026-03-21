@@ -1,6 +1,7 @@
 import time
 from copy import deepcopy
 
+import experiment_helpers as experiment
 import numpy as np
 import torch
 import utils
@@ -88,6 +89,13 @@ def RL(data_loaders, model, criterion, optimizer, epoch, args, mask=None):
             
             if mask:
                 _restore_masked_params(model, mask, theta0, optimizer)
+            experiment.save_requested_step_checkpoint(
+                model,
+                args,
+                epoch=epoch,
+                step_in_epoch=it + 1,
+                steps_per_epoch=len(train_loader),
+            )
       
             output = output_clean.float()
             loss = loss.float()
@@ -138,6 +146,13 @@ def RL(data_loaders, model, criterion, optimizer, epoch, args, mask=None):
             
             if mask:
                 _restore_masked_params(model, mask, theta0, optimizer)
+            experiment.save_requested_step_checkpoint(
+                model,
+                args,
+                epoch=epoch,
+                step_in_epoch=i + 1,
+                steps_per_epoch=loader_len,
+            )
             
         for i, (image, target) in enumerate(retain_loader):
             image = image.cuda()
@@ -165,6 +180,14 @@ def RL(data_loaders, model, criterion, optimizer, epoch, args, mask=None):
             
             losses.update(loss.item(), image.size(0))
             top1.update(prec1.item(), image.size(0))
+            experiment.save_requested_step_checkpoint(
+                model,
+                args,
+                epoch=epoch,
+                step_in_epoch=len(forget_loader) + i + 1,
+                steps_per_epoch=loader_len,
+                extra_state={"train_accuracy": top1.avg},
+            )
             
             if (i + 1) % args.print_freq == 0:
                end = time.time()
