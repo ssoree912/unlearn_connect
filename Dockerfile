@@ -27,4 +27,11 @@ RUN curl -fsSL https://github.com/conda-forge/miniforge/releases/latest/download
 ENV PATH=/opt/conda/bin:$PATH
 SHELL ["bash", "-lc"]
 
+# 1. Conda를 이용해 Node.js(npm 포함) 및 Jupyter 설치
+RUN conda install -y -c conda-forge nodejs jupyter jupyterlab && \
+    conda clean -ya
+
+# 2. npm을 이용해 OpenAI Codex 전역 설치
+RUN npm install -g @openai/codex
+
 CMD ["bash"]

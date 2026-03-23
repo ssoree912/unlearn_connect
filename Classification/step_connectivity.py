@@ -192,6 +192,11 @@ def build_parser():
         action="store_true",
         help="allow A/B to share the same unlearn_seed; useful for cross-hyperparameter comparisons",
     )
+    parser.add_argument(
+        "--allow_mismatched_base_checkpoint_hash",
+        action="store_true",
+        help="allow A/B to originate from different parent checkpoints; useful for warm-start continuation comparisons",
+    )
     parser.add_argument("--skip_plots", action="store_true", help="skip PNG plot generation")
     parser.add_argument("--notes", default="", type=str, help="free-form note stored in run_manifest.csv")
     return parser
@@ -451,14 +456,20 @@ def prefer_non_null(*values):
     return None
 
 
-def validate_pair_metadata(meta_a, meta_b, allow_same_unlearn_seed=False):
+def validate_pair_metadata(
+    meta_a,
+    meta_b,
+    allow_same_unlearn_seed=False,
+    allow_mismatched_base_checkpoint_hash=False,
+):
     require_equal("forget_seed", meta_a.get("forget_seed"), meta_b.get("forget_seed"))
     require_equal(
         "forget_index_hash", meta_a.get("forget_index_hash"), meta_b.get("forget_index_hash")
     )
-    require_equal(
-        "base_checkpoint_hash", meta_a.get("base_checkpoint_hash"), meta_b.get("base_checkpoint_hash")
-    )
+    if not allow_mismatched_base_checkpoint_hash:
+        require_equal(
+            "base_checkpoint_hash", meta_a.get("base_checkpoint_hash"), meta_b.get("base_checkpoint_hash")
+        )
     require_equal("optimizer", meta_a.get("optimizer"), meta_b.get("optimizer"))
     require_equal("lr_schedule", meta_a.get("lr_schedule"), meta_b.get("lr_schedule"))
     require_equal("batch_size", meta_a.get("batch_size"), meta_b.get("batch_size"))
@@ -694,7 +705,12 @@ def main():
         first_checkpoint_b = experiment.load_checkpoint_file(step_map_b[common_steps[0]], device)
         _, meta_a = experiment.extract_state_dict(first_checkpoint_a)
         _, meta_b = experiment.extract_state_dict(first_checkpoint_b)
-        validate_pair_metadata(meta_a, meta_b, allow_same_unlearn_seed=args.allow_same_unlearn_seed)
+        validate_pair_metadata(
+            meta_a,
+            meta_b,
+            allow_same_unlearn_seed=args.allow_same_unlearn_seed,
+            allow_mismatched_base_checkpoint_hash=args.allow_mismatched_base_checkpoint_hash,
+        )
 
         pair_id = args.pair_id or f"A{meta_a.get('unlearn_seed')}_B{meta_b.get('unlearn_seed')}"
         run_manifest_row = build_run_manifest_row(args, pair_id, meta_a, meta_b, alpha_grid, common_steps)
@@ -730,7 +746,12 @@ def main():
             checkpoint_b = experiment.load_checkpoint_file(step_map_b[step], device)
             state_a, meta_a = experiment.extract_state_dict(checkpoint_a)
             state_b, meta_b = experiment.extract_state_dict(checkpoint_b)
-            validate_pair_metadata(meta_a, meta_b, allow_same_unlearn_seed=args.allow_same_unlearn_seed)
+            validate_pair_metadata(
+                meta_a,
+                meta_b,
+                allow_same_unlearn_seed=args.allow_same_unlearn_seed,
+                allow_mismatched_base_checkpoint_hash=args.allow_mismatched_base_checkpoint_hash,
+            )
             epoch_float = resolve_epoch_float(step, meta_a, meta_b)
 
             checkpoint_manifest_rows.append(
