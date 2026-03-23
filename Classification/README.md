@@ -127,23 +127,33 @@ The repository now supports fixed forget indexes, separate data/unlearning seeds
     ```
 
 ## Step-wise connectivity protocol
-For the step-wise protocol, save aligned `step_*.pth.tar` checkpoints during unlearning and then scan the linear path between the two runs at each shared step.
+For the step-wise protocol, save aligned `step_*.pth.tar` checkpoints across the runs you want to connect and then run `mode_connectivity.py`.
+Supported modes:
+- `linear`: legacy A/B interpolation
+- `quadratic_bezier`: endpoints `A,B` plus one or more control trajectories
+- `simplex`: simplex soup over `A`, control runs, and `B`
 
-1. Save step checkpoints while running the two SalUn seeds.
+1. Save step checkpoints while running the endpoint seeds.
     ```bash
     python main_forget.py       --arch resnet18       --dataset cifar10       --unlearn RL       --unlearn_epochs 10       --unlearn_lr 0.013       --model_path runs/baseline/0checkpoint.pth.tar       --save_dir runs/10/step_connectivity/salun_A       --mask_path runs/10/mask_fixed/with_0.5.pt       --forget_seed 1       --forget_index_path runs/10/forget_indices.npy       --unlearn_seed 11       --checkpoint_every_steps 100       --save_checkpoint_step_zero
     ```
-    Repeat with `--unlearn_seed 22` and a different `--save_dir` for run B.
+    Repeat with `--unlearn_seed 22` and a different `--save_dir` for run B. For `quadratic_bezier` or `simplex`, also save at least one aligned control run such as `salun_C`.
 
-2. Run the step-wise connectivity scan.
+2. Run the connectivity scan.
+    Quadratic Bézier:
     ```bash
-    python step_connectivity.py       --arch resnet18       --dataset cifar10       --run_a_dir runs/10/step_connectivity/salun_A       --run_b_dir runs/10/step_connectivity/salun_B       --output_dir runs/10/step_connectivity/connectivity       --ratio 10       --forget_seed 1       --forget_index_path runs/10/forget_indices.npy       --alpha_grid 0.0:0.1:1.0       --beta 0.3       --delta 0.0
+    python mode_connectivity.py       --arch resnet18       --dataset cifar10       --run_a_dir runs/10/step_connectivity/salun_A       --run_b_dir runs/10/step_connectivity/salun_B       --control_run_dirs C=runs/10/step_connectivity/salun_C       --output_dir runs/10/step_connectivity/connectivity_bezier       --ratio 10       --forget_seed 1       --forget_index_path runs/10/forget_indices.npy       --connectivity_mode quadratic_bezier       --alpha_grid 0.0:0.1:1.0       --selection_mode dr_min_then_val
     ```
-    The script writes `run_manifest.csv`, `checkpoint_manifest.csv`, `endpoint_metrics.csv`, `path_scan.csv`, `step_summary.csv`, `full_eval.csv`, a `protocol.log`, and four PNG plots under `--output_dir`.
-
-3. For a direct end-to-end run from shell env vars, use:
+    Simplex:
     ```bash
-    RATIO=10     MASK_PATH=runs/10/mask_fixed/with_0.5.pt     SALUN_LR=0.013     SALUN_EPOCHS=10     bash run_step_connectivity.sh
+    python mode_connectivity.py       --arch resnet18       --dataset cifar10       --run_a_dir runs/10/step_connectivity/salun_A       --run_b_dir runs/10/step_connectivity/salun_B       --control_run_dirs C=runs/10/step_connectivity/salun_C       --output_dir runs/10/step_connectivity/connectivity_simplex       --ratio 10       --forget_seed 1       --forget_index_path runs/10/forget_indices.npy       --connectivity_mode simplex       --simplex_weight_step 0.1       --selection_mode abs_balance       --abs_balance_a 1.0       --abs_balance_b 1.0
+    ```
+    The script writes `run_manifest.csv`, `checkpoint_manifest.csv`, `endpoint_metrics.csv`, `path_scan.csv`, `step_summary.csv`, `full_eval.csv`, `simplex_barriers.csv`, a `protocol.log`, and plots under `--output_dir`.
+    The requested selection modes are `dr_min_then_val` and `abs_balance`. `normalized_combo` is still available for compatibility.
+
+3. For a direct end-to-end shell run, use `run_step_connectivity.sh` with `CONNECTIVITY_MODE` and either `CONTROL_RUN_DIRS` or `UNLEARN_SEED_C`.
+    ```bash
+    CONNECTIVITY_MODE=quadratic_bezier     UNLEARN_SEED_C=33     RATIO=10     MASK_PATH=runs/10/mask_fixed/with_0.5.pt     SALUN_LR=0.013     SALUN_EPOCHS=10     bash run_step_connectivity.sh
     ```
 
 ## Nested ratio sweep

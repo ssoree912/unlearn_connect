@@ -2,9 +2,6 @@ import datetime as dt
 import math
 import os
 
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn as nn
@@ -197,7 +194,6 @@ def build_parser():
         action="store_true",
         help="allow A/B to originate from different parent checkpoints; useful for warm-start continuation comparisons",
     )
-    parser.add_argument("--skip_plots", action="store_true", help="skip PNG plot generation")
     parser.add_argument("--notes", default="", type=str, help="free-form note stored in run_manifest.csv")
     return parser
 
@@ -603,63 +599,6 @@ def full_eval_row(args, pair_id, step, epoch_float, candidate_type, row):
     }
 
 
-def plot_outputs(output_dir, step_summaries, full_eval_rows):
-    steps = [float(row["step"]) for row in step_summaries]
-    if not steps:
-        return
-
-    plt.figure(figsize=(9, 5))
-    plt.plot(steps, [float(row["retain_barrier"]) for row in step_summaries], marker="o", label="retain")
-    plt.plot(steps, [float(row["forget_barrier"]) for row in step_summaries], marker="o", label="forget")
-    plt.plot(steps, [float(row["val_barrier"]) for row in step_summaries], marker="o", label="val")
-    plt.plot(steps, [float(row["test_barrier"]) for row in step_summaries], marker="o", label="test")
-    plt.xlabel("step")
-    plt.ylabel("barrier")
-    plt.title("Barrier vs Step")
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, "barrier_vs_step.png"))
-    plt.close()
-
-    plt.figure(figsize=(9, 4))
-    plt.plot(steps, [finite_float(row["alpha_star_refined"]) for row in step_summaries], marker="o")
-    plt.xlabel("step")
-    plt.ylabel("alpha*")
-    plt.title("Alpha Star vs Step")
-    plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, "alpha_star_vs_step.png"))
-    plt.close()
-
-    plt.figure(figsize=(9, 4))
-    plt.plot(steps, [finite_float(row["delta_05"]) for row in step_summaries], marker="o", label="delta_05")
-    plt.plot(steps, [finite_float(row["delta_int"]) for row in step_summaries], marker="o", label="delta_int")
-    plt.xlabel("step")
-    plt.ylabel("gap")
-    plt.title("Merge Gap vs Step")
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, "gap_vs_step.png"))
-    plt.close()
-
-    merge_best_rows = [row for row in full_eval_rows if row["candidate_type"] == "merge_best"]
-    merge_steps = [float(row["step"]) for row in merge_best_rows]
-    fig, axes = plt.subplots(2, 2, figsize=(10, 6), sharex=True)
-    metric_specs = [
-        ("ua", "UA"),
-        ("dr_loss", "DR loss"),
-        ("val_loss", "Val loss"),
-        ("test_loss", "Test loss"),
-    ]
-    for axis, (key, title) in zip(axes.flat, metric_specs):
-        axis.plot(merge_steps, [finite_float(row[key]) for row in merge_best_rows], marker="o")
-        axis.set_title(title)
-        axis.set_xlabel("step")
-    fig.suptitle("Merge Best Metrics vs Step")
-    fig.tight_layout()
-    fig.savefig(os.path.join(output_dir, "merge_best_metrics_vs_step.png"))
-    plt.close(fig)
-
-
 def main():
     args = build_parser().parse_args()
     args = experiment.prepare_experiment_args(args)
@@ -1016,8 +955,6 @@ def main():
             full_eval_rows,
             FULL_EVAL_FIELDS,
         )
-        if not args.skip_plots:
-            plot_outputs(args.output_dir, step_summary_rows, full_eval_rows)
         print(f"Wrote step connectivity artifacts to {os.path.abspath(args.output_dir)}")
     finally:
         logger.close()
