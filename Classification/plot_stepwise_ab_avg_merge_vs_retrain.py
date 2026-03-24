@@ -1,5 +1,6 @@
 import argparse
 import csv
+import html
 import math
 import os
 import re
@@ -376,8 +377,8 @@ def collect_dataset(runs_root, retrain_root, ratio_run_specs, metrics, epoch_off
 
         for step in sorted(by_step):
             candidates = by_step[step]
-            main_row = candidates.get("endpoint_a")
-            alt_row = candidates.get("endpoint_b")
+            main_row = candidates.get("endpoint_a") or candidates.get("vertex_main_lr")
+            alt_row = candidates.get("endpoint_b") or candidates.get("vertex_alt_lr")
             merge05_row = candidates.get("merge_05")
             merge_center_row = candidates.get("merge_center")
             merge_best_row = candidates.get("merge_best")
@@ -497,7 +498,14 @@ def collect_dataset(runs_root, retrain_root, ratio_run_specs, metrics, epoch_off
             selected_rows = choose_path_rows_for_step(grouped_scan[step], best_curve_map.get(step, ""))
             for row in selected_rows:
                 alpha = finite_float(row.get("alpha"))
-                if not math.isfinite(alpha):
+                center_distance = finite_float(row.get("center_distance"))
+                if math.isfinite(alpha):
+                    curve_x = alpha
+                    curve_x_label = "alpha"
+                elif math.isfinite(center_distance):
+                    curve_x = center_distance
+                    curve_x_label = "center_distance"
+                else:
                     continue
                 epoch_float = finite_float(row.get("epoch_float"))
                 if math.isfinite(epoch_float):
@@ -512,6 +520,11 @@ def collect_dataset(runs_root, retrain_root, ratio_run_specs, metrics, epoch_off
                         "step": step,
                         "epoch_float": epoch_float,
                         "alpha": alpha,
+                        "curve_x": curve_x,
+                        "curve_x_label": curve_x_label,
+                        "curve_id": (row.get("curve_id") or "").strip(),
+                        "weights": (row.get("weights") or "").strip(),
+                        "center_distance": center_distance,
                         "ua": finite_float(row.get("ua")),
                         "dr_loss": finite_float(row.get("dr_loss")),
                         "val_loss": finite_float(row.get("val_loss")),
@@ -561,6 +574,12 @@ def plot_path_curves_png(rows, ratio, output_path):
     color_map = {epoch_key: colors[index] for index, epoch_key in enumerate(epoch_keys)}
     fig, axes = plt.subplots(len(comparison_groups), len(CURVE_METRICS), figsize=(18, 4.2 * len(comparison_groups)), sharex=True)
     axes = np.atleast_2d(axes)
+    x_labels = {(row.get("curve_x_label") or "").strip() for row in ratio_rows if (row.get("curve_x_label") or "").strip()}
+    x_axis_label = "path coordinate"
+    if len(x_labels) == 1:
+        only_label = next(iter(x_labels))
+        x_axis_label = "alpha" if only_label == "alpha" else "center distance"
+    is_simplex_profile = x_labels == {"center_distance"}
 
     legend_handles = []
     legend_labels = []
@@ -571,17 +590,22 @@ def plot_path_curves_png(rows, ratio, output_path):
             axis = axes[row_index, col_index]
             for epoch_key in epoch_keys:
                 series = [row for row in group_rows if round(finite_float(row.get("epoch_float")), 6) == epoch_key]
-                series.sort(key=lambda item: float(item["alpha"]))
+                series = [row for row in series if math.isfinite(finite_float(row.get("curve_x")))]
+                series.sort(key=lambda item: finite_float(item.get("curve_x")))
                 if not series:
                     continue
+                x_values = [finite_float(item["curve_x"]) for item in series]
+                y_values = [finite_float(item[metric_key]) for item in series]
                 handle, = axis.plot(
-                    [float(item["alpha"]) for item in series],
-                    [finite_float(item[metric_key]) for item in series],
+                    x_values,
+                    y_values,
                     color=color_map[epoch_key],
-                    linewidth=1.4,
-                    alpha=0.95,
+                    linewidth=1.2,
+                    alpha=0.85,
                     label=f"{epoch_key:.1f}",
                 )
+                if is_simplex_profile:
+                    axis.scatter(x_values, y_values, color=[color_map[epoch_key]], s=12, alpha=0.7)
                 if row_index == 0 and col_index == 0:
                     legend_handles.append(handle)
                     legend_labels.append(f"{epoch_key:.1f}")
@@ -590,10 +614,10 @@ def plot_path_curves_png(rows, ratio, output_path):
             if col_index == 0:
                 axis.set_ylabel(row_label)
             if row_index == len(comparison_groups) - 1:
-                axis.set_xlabel("alpha")
+                axis.set_xlabel(x_axis_label)
             axis.grid(alpha=0.2)
 
-    fig.suptitle(f"Ratio {ratio}%: Path Curves by Epoch")
+    fig.suptitle(f"Ratio {ratio}%: {'Simplex Profiles' if is_simplex_profile else 'Path Curves'} by Epoch")
     fig.legend(legend_handles, legend_labels, loc="lower center", ncol=min(9, max(1, len(legend_labels))), frameon=False)
     fig.tight_layout(rect=(0, 0.08, 1, 0.95))
     fig.savefig(output_path, dpi=200)
@@ -640,39 +664,59 @@ def build_metric_html(long_rows, metric_name, plot_series):
     if not ratios:
         return None
 
-    fig = make_subplots(rows=len(ratios), cols=1, subplot_titles=[f"ratio {ratio}" for ratio in ratios], vertical_spacing=0.08)
+    ratio_comparisons = {}
+    max_cols = 1
+    for ratio in ratios:
+        ratio_rows = [row for row in metric_rows if int(row["ratio"]) == ratio and row["series_type"] != "retrain"]
+        comparison_labels = sorted(
+            {row["comparison_label"] for row in ratio_rows},
+            key=lambda label: comparison_sort_key(next(item for item in ratio_rows if item["comparison_label"] == label)),
+        )
+        if not comparison_labels:
+            comparison_labels = ["all"]
+        ratio_comparisons[ratio] = comparison_labels
+        max_cols = max(max_cols, len(comparison_labels))
+
+    subplot_titles = []
+    for ratio in ratios:
+        labels = ratio_comparisons[ratio]
+        for idx in range(max_cols):
+            if idx < len(labels):
+                subplot_titles.append(f"ratio {ratio} | {labels[idx]}")
+            else:
+                subplot_titles.append("")
+
+    fig = make_subplots(rows=len(ratios), cols=max_cols, subplot_titles=subplot_titles, vertical_spacing=0.08, horizontal_spacing=0.07)
     legend_seen = set()
 
     for row_index, ratio in enumerate(ratios, start=1):
         ratio_rows = [row for row in metric_rows if int(row["ratio"]) == ratio]
-        epoch_values = sorted({round(finite_float(row["epoch_float"]), 6) for row in ratio_rows})
         retrain_rows = [row for row in ratio_rows if row["series_type"] == "retrain"]
-        if retrain_rows and epoch_values and "retrain" in plot_series:
-            retrain_value = finite_float(retrain_rows[0].get(metric_name))
-            if math.isfinite(retrain_value):
-                name = "retrain"
-                fig.add_trace(
-                    go.Scatter(
-                        x=epoch_values,
-                        y=[retrain_value] * len(epoch_values),
-                        mode="lines",
-                        name=name,
-                        legendgroup=name,
-                        showlegend=name not in legend_seen,
-                        line={"color": "#111111", "dash": "dash", "width": 2},
-                        hovertemplate=f"ratio {ratio}<br>retrain<br>epoch=%{{x:.2f}}<br>{METRIC_LABELS.get(metric_name, metric_name)}=%{{y:.4f}}<extra></extra>",
-                    ),
-                    row=row_index,
-                    col=1,
-                )
-                legend_seen.add(name)
+        for col_index, comparison_label in enumerate(ratio_comparisons[ratio], start=1):
+            comparison_rows = [row for row in ratio_rows if row["comparison_label"] == comparison_label and row["series_type"] != "retrain"]
+            epoch_values = sorted({round(finite_float(row["epoch_float"]), 6) for row in comparison_rows})
+            if retrain_rows and epoch_values and "retrain" in plot_series:
+                retrain_value = finite_float(retrain_rows[0].get(metric_name))
+                if math.isfinite(retrain_value):
+                    name = "retrain"
+                    fig.add_trace(
+                        go.Scatter(
+                            x=epoch_values,
+                            y=[retrain_value] * len(epoch_values),
+                            mode="lines",
+                            name=name,
+                            legendgroup=name,
+                            showlegend=name not in legend_seen,
+                            line={"color": "#111111", "dash": "dash", "width": 2},
+                            hovertemplate=f"ratio {ratio}<br>{comparison_label}<br>retrain<br>epoch=%{{x:.2f}}<br>{METRIC_LABELS.get(metric_name, metric_name)}=%{{y:.4f}}<extra></extra>",
+                        ),
+                        row=row_index,
+                        col=col_index,
+                    )
+                    legend_seen.add(name)
 
-        comparison_labels = sorted(
-            {row["comparison_label"] for row in ratio_rows if row["series_type"] != "retrain"},
-            key=lambda label: comparison_sort_key(next(item for item in ratio_rows if item["comparison_label"] == label)),
-        )
-        for comparison_label in comparison_labels:
-            comparison_rows = [row for row in ratio_rows if row["comparison_label"] == comparison_label]
+            if not comparison_rows:
+                continue
             first = comparison_rows[0]
             color = COMPARISON_COLORS.get(first.get("comparison", "same"), "#444444")
             prefix = COMPARISON_LABELS.get(first.get("comparison", "same"), first.get("comparison", "same"))
@@ -712,23 +756,91 @@ def build_metric_html(long_rows, metric_name, plot_series):
                         ),
                     ),
                     row=row_index,
-                    col=1,
+                    col=col_index,
                 )
                 legend_seen.add(name)
 
-        fig.update_xaxes(title_text="epoch", row=row_index, col=1)
-        fig.update_yaxes(title_text=METRIC_LABELS.get(metric_name, metric_name), row=row_index, col=1)
+            fig.update_xaxes(title_text="epoch", row=row_index, col=col_index)
+            if col_index == 1:
+                fig.update_yaxes(title_text=METRIC_LABELS.get(metric_name, metric_name), row=row_index, col=col_index)
 
     fig.update_layout(
         height=320 * len(ratios) + 120,
-        width=1200,
-        title=f"{METRIC_LABELS.get(metric_name, metric_name)} by ratio",
+        width=620 * max_cols,
+        title=f"{METRIC_LABELS.get(metric_name, metric_name)} by ratio / comparison",
         hovermode="x unified",
         template="plotly_white",
         legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "left", "x": 0.0},
-        margin={"l": 70, "r": 30, "t": 100, "b": 50},
+        margin={"l": 70, "r": 30, "t": 110, "b": 50},
     )
     return fig
+
+
+def write_index_html(summary_dir, output_prefix, ratios, html_metrics):
+    metric_links = []
+    for metric_name in html_metrics:
+        filename = f"{output_prefix}_{metric_name}_by_ratio.html"
+        if os.path.isfile(os.path.join(summary_dir, filename)):
+            metric_links.append((metric_name, filename))
+
+    ratio_blocks = []
+    for ratio in ratios:
+        figure_links = []
+        for label, filename in [
+            ("Path / Profile PNG", f"{output_prefix}_path_curves_by_step_ratio{ratio}.png"),
+            ("Barrier PNG", f"{output_prefix}_barrier_by_step_ratio{ratio}.png"),
+        ]:
+            if os.path.isfile(os.path.join(summary_dir, filename)):
+                figure_links.append((label, filename))
+        ratio_blocks.append((ratio, figure_links))
+
+    csv_links = []
+    for suffix, label in [
+        ("epoch_performance_vs_retrain_long.csv", "epoch performance long CSV"),
+        ("epoch_performance_vs_retrain.csv", "epoch performance wide CSV"),
+        ("epoch_performance_vs_retrain_rows.csv", "epoch performance rows CSV"),
+        ("barrier_by_step.csv", "barrier CSV"),
+        ("path_curves_by_step.csv", "path/profile CSV"),
+        ("pair_summary.csv", "pair summary CSV"),
+    ]:
+        filename = f"{output_prefix}_{suffix}"
+        if os.path.isfile(os.path.join(summary_dir, filename)):
+            csv_links.append((label, filename))
+
+    parts = [
+        "<!doctype html>",
+        "<html><head><meta charset='utf-8'><title>Connectivity Summary</title>",
+        "<style>body{font-family:Arial,sans-serif;margin:24px;line-height:1.45}h1,h2{margin:0 0 12px}section{margin:0 0 24px}ul{margin:8px 0 0 20px}</style>",
+        "</head><body>",
+        f"<h1>{html.escape(output_prefix)} summary</h1>",
+    ]
+
+    if metric_links:
+        parts.append("<section><h2>Metric HTML</h2><ul>")
+        for metric_name, filename in metric_links:
+            parts.append(f"<li><a href='{html.escape(filename)}'>{html.escape(metric_name)}</a></li>")
+        parts.append("</ul></section>")
+
+    if csv_links:
+        parts.append("<section><h2>CSV</h2><ul>")
+        for label, filename in csv_links:
+            parts.append(f"<li><a href='{html.escape(filename)}'>{html.escape(label)}</a></li>")
+        parts.append("</ul></section>")
+
+    parts.append("<section><h2>Per-ratio PNG</h2>")
+    for ratio, figure_links in ratio_blocks:
+        if not figure_links:
+            continue
+        parts.append(f"<h3>ratio {ratio}</h3><ul>")
+        for label, filename in figure_links:
+            parts.append(f"<li><a href='{html.escape(filename)}'>{html.escape(label)}</a></li>")
+        parts.append("</ul>")
+    parts.append("</section></body></html>")
+
+    index_path = os.path.join(summary_dir, f"{output_prefix}_index.html")
+    with open(index_path, "w", encoding="utf-8") as handle:
+        handle.write("".join(parts))
+    return index_path
 
 
 def build_pair_summary(barrier_rows, wide_rows):
@@ -829,7 +941,7 @@ def main():
     performance_wide_rows.sort(key=lambda item: (int(item["ratio"]), COMPARISON_ORDER.get(item["comparison"], 99), finite_float(item["epoch_float"]), int(item["step"])))
     performance_row_rows.sort(key=lambda item: (int(item["ratio"]), COMPARISON_ORDER.get(item["comparison"], 99), finite_float(item["epoch_float"]), series_sort_key(item["series_type"]), item["metric_name"], int(item["step"])))
     barrier_rows.sort(key=lambda item: (int(item["ratio"]), COMPARISON_ORDER.get(item["comparison"], 99), finite_float(item["epoch_float"]), int(item["step"])))
-    path_curve_rows.sort(key=lambda item: (int(item["ratio"]), COMPARISON_ORDER.get(item["comparison"], 99), finite_float(item["epoch_float"]), float(item["alpha"])))
+    path_curve_rows.sort(key=lambda item: (int(item["ratio"]), COMPARISON_ORDER.get(item["comparison"], 99), finite_float(item["epoch_float"]), finite_float(item.get("curve_x"))))
 
     base_fields = ["ratio", "comparison", "comparison_label", "main_lr", "alt_lr", "lr_gap", "step", "epoch_float"]
     long_fieldnames = base_fields + ["series_type", "series_label", "alpha"]
@@ -849,7 +961,7 @@ def main():
 
     row_fieldnames = base_fields + ["series_type", "series_label", "alpha", "metric_name", "metric_value", "retrain_value", "gap_vs_retrain"]
     barrier_fieldnames = base_fields + ["alpha_star_coarse", "alpha_star_refined", "delta_05", "delta_int", "retain_barrier", "forget_barrier", "val_barrier", "test_barrier"]
-    path_curve_fieldnames = ["ratio", "comparison", "comparison_label", "main_lr", "alt_lr", "step", "epoch_float", "alpha", "ua", "dr_loss", "val_loss", "j_score", "feasible"]
+    path_curve_fieldnames = ["ratio", "comparison", "comparison_label", "main_lr", "alt_lr", "step", "epoch_float", "alpha", "curve_x", "curve_x_label", "curve_id", "weights", "center_distance", "ua", "dr_loss", "val_loss", "j_score", "feasible"]
 
     performance_long_path = os.path.join(summary_dir, f"{output_prefix}_epoch_performance_vs_retrain_long.csv")
     performance_wide_path = os.path.join(summary_dir, f"{output_prefix}_epoch_performance_vs_retrain.csv")
@@ -896,6 +1008,9 @@ def main():
         html_path = os.path.join(summary_dir, f"{output_prefix}_{metric_name}_by_ratio.html")
         fig.write_html(html_path, include_plotlyjs=True, full_html=True)
         print(f"Wrote {html_path}")
+
+    index_path = write_index_html(summary_dir, output_prefix, sorted({int(spec["ratio"]) for spec in prepared_specs}), html_metrics)
+    print(f"Wrote {index_path}")
 
 
 if __name__ == "__main__":
